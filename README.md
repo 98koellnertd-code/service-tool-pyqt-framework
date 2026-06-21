@@ -79,8 +79,8 @@ installieren, bedienen oder in eine bestehende Umgebung integrieren.
 |---|---|
 | Hersteller / Inverkehrbringer | *[Firmenname eintragen]* |
 | Postanschrift | *[Straße, PLZ, Ort, Land eintragen]* |
-| E-Mail (allgemein &amp; Sicherheit) | `service@site-forge.info` |
-| Single Point of Contact (Schwachstellen) | `service@site-forge.info` |
+| E-Mail (allgemein &amp; Sicherheit) | `mitarbeiter@firmenname.de` |
+| Single Point of Contact (Schwachstellen) | `mitarbeiter@firmenname.de` |
 | EU-Konformitätserklärung | *[URL eintragen, sofern zutreffend]* |
 
 ---
