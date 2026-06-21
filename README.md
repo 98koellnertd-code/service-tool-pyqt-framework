@@ -446,7 +446,7 @@ sind, und nutzen verschlüsselte Transportwege:
 > **Sicherheitslücke gefunden?** Bitte melden Sie diese **vertraulich** an die
 > zentrale Anlaufstelle:
 >
-> **📧 `service@site-forge.info`**
+> **📧 `mitarbeiter@firmenname.de`**
 >
 > - Bitte **keine** Veröffentlichung vor einer abgestimmten Behebung
 >   („Responsible Disclosure"), keine öffentlichen Issues.
@@ -566,7 +566,7 @@ Alle Daten liegen im Unterordner **`res/`** neben der Programmdatei:
 
 **Service - Tool · Benutzerhandbuch v1.0**
 
-Kontakt &amp; Schwachstellenmeldung: `service@site-forge.info`
+Kontakt &amp; Schwachstellenmeldung: `mitarbeiter@firmenname.de`
 
 <sub>Mit *[Hersteller]* zu vervollständigende Felder sind kursiv in eckigen
 Klammern markiert.</sub>
