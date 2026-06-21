@@ -116,13 +116,186 @@ PROGRAMM_HILFE = [
      "title": "Profil, Export-Ordner, Farben und Updates",
      "content": "In den Einstellungen pflegst du persönliche Daten, Export-Ordner, "
                 "das Farbthema und die automatische Update-Prüfung."},
+
+    # ── Salesforce / API-Verbindungen (ausführlich) ─────────────────────────
+    {"cat": "Salesforce",
+     "title": "Session ID vs. OAuth — welche Anmeldung?",
+     "content": "Session ID (sf) ist die schnellste Methode: den Cookie 'sid' aus "
+                "einer offenen Salesforce-Sitzung im Browser kopieren und einfügen — "
+                "läuft aber nach etwa 8 Stunden ab. OAuth (E-Mail, Passwort, ggf. "
+                "Security-Token und Connected App mit Client-ID/Secret) bleibt "
+                "dauerhaft verbunden. Beides im Menü API Verbindungen / Salesforce."},
+    {"cat": "Salesforce",
+     "title": "VPN / GlobalProtect für Salesforce nötig",
+     "content": "Für den Zugriff auf Salesforce ist meist eine aktive "
+                "VPN-Verbindung (GlobalProtect) erforderlich. Schlägt die Anmeldung "
+                "trotz korrekter Daten fehl, zuerst prüfen, ob das VPN verbunden ist. "
+                "Der Verbindungsstatus wird unten links in der Sidebar angezeigt."},
+    {"cat": "Salesforce",
+     "title": "Session läuft ab / Verbindung verloren",
+     "content": "Das Tool pingt Salesforce regelmäßig. Läuft die Session ab, "
+                "erscheint ein Hinweis und der Status wird rot — dann im Menü API "
+                "Verbindungen neu anmelden (bei Session ID einen frischen 'sid' "
+                "kopieren). Mit OAuth tritt das Problem seltener auf. Weitere "
+                "Provider (SAP read-only, TIA Portal) sind vorbereitet, aber noch "
+                "nicht aktiv."},
+
+    # ── Arbeitszeiten (ausführlich) ─────────────────────────────────────────
+    {"cat": "Arbeitszeiten",
+     "title": "Arbeitszeiten: Monatsansicht und Bearbeitung",
+     "content": "Die Arbeitszeiten-Seite zeigt alle Tage eines Monats. Tage sind "
+                "direkt in der Liste editierbar; das Detail-Panel unten bearbeitet "
+                "einzelne Einträge (Kunde, Start/Ende, Pause, Außendienst/"
+                "Innendienst). Daten lassen sich aus Salesforce laden oder manuell "
+                "erfassen und werden lokal in res/kw_data je Kalenderwoche "
+                "gespeichert."},
+    {"cat": "Arbeitszeiten",
+     "title": "Gleitzeitkonto (GLZ) und Tagesstatus",
+     "content": "Pro Tag gibt es einen Status: Arbeit, Krank, Urlaub, Kurzarbeit, "
+                "GLZ, Feiertag, Sonstiges oder Frei. Das Gleitzeitkonto ergibt sich "
+                "aus geleisteten Stunden minus Soll (8 h an Werktagen); GLZ und "
+                "Kurzarbeit ziehen das Soll ab. Wochenende ist standardmäßig frei."},
+    {"cat": "Arbeitszeiten",
+     "title": "Servicezeitenmeldung als Excel oder PDF exportieren",
+     "content": "Über 'Excel-Export' wird die Servicezeitenmeldung als Excel-Datei "
+                "erzeugt, über 'PDF-Export' dieselbe Meldung als PDF. Der Zielordner "
+                "lässt sich in den Einstellungen festlegen. Bei Innendienst/Homeoffice "
+                "kann ein Allgemeinkosten-Code (z.B. 0020 Service Hotline) angegeben "
+                "werden."},
+
+    # ── Reisekosten (ausführlich) ───────────────────────────────────────────
+    {"cat": "Reisekosten",
+     "title": "Reisekosten: Wochenansicht (KW) erfassen",
+     "content": "Die Reisekosten-Seite arbeitet je Kalenderwoche (KW) und zeigt "
+                "Montag bis Sonntag mit allen Feldern inkl. Verpflegung/Mahlzeiten und "
+                "Sonstigem. Nach einem Salesforce-Import werden die Daten automatisch "
+                "lokal gespeichert (res/kw_data)."},
+    {"cat": "Reisekosten",
+     "title": "Reisekostenabrechnung exportieren (FB_0020-Vorlage)",
+     "content": "'Excel-Export' füllt die offizielle FB_0020-Reisekostenvorlage aus "
+                "(liegt in res/templates). 'PDF-Export' erzeugt die Abrechnung als PDF "
+                "ohne Vorlage. Jahr und KW werden oben über die Auswahl eingestellt."},
+
+    # ── Ersatzteile & Bestellung (ausführlich) ──────────────────────────────
+    {"cat": "Ersatzteile",
+     "title": "Ersatzteilkatalog je Gerätesystem durchsuchen",
+     "content": "Im Menü Ersatzteile wird der Katalog je Gerätesystem durchsucht. "
+                "Die Daten liegen in res/et/<system>.json; welche Systeme es gibt, "
+                "steht in res/et/systeme.json. Neue Systeme und Einträge lassen sich "
+                "direkt im Tool anlegen. Ein Doppelklick auf ein Teil übernimmt es in "
+                "die aktuelle Bestellung."},
+    {"cat": "Bestellung",
+     "title": "Bestellung anlegen, speichern und laden",
+     "content": "Eine Bestellung besteht aus Name, Datum und Positionen "
+                "(Bestellnummer, Name, Anzahl). Bestellungen werden als JSON unter "
+                "res/orders/<id>.json mit fortlaufender Nummer gespeichert und über "
+                "die Combobox 'Bestellung laden' wieder geöffnet. Positionen können "
+                "jederzeit manuell hinzugefügt und bearbeitet werden."},
+    {"cat": "Bestellung",
+     "title": "Favoriten für häufige Ersatzteile",
+     "content": "Häufig benötigte Teile lassen sich als Favoriten speichern "
+                "(res/orders/favoriten.json) und beim nächsten Mal schneller in eine "
+                "Bestellung übernehmen. Die Bestellung lässt sich als Excel oder PDF "
+                "exportieren."},
+
+    # ── Datenbank / Serviceberichte (ausführlich) ───────────────────────────
+    {"cat": "Datenbank",
+     "title": "Serviceberichte automatisch per Mail importieren",
+     "content": "Im Menü Datenbank werden Serviceberichte, verbrauchte Mittel und "
+                "Kunden aus der (Railway-PostgreSQL-)Datenbank angezeigt. Über "
+                "'E-Mails abrufen' werden ungelesene Mails mit PDF-Anhang per IMAP "
+                "geholt, mit Claude analysiert und automatisch in die DB eingefügt. "
+                "Mit 'PDF analysieren' geht das auch manuell. Berichte lassen sich "
+                "wieder löschen."},
+    {"cat": "Datenbank",
+     "title": "Mail-Abruf einrichten (IMAP)",
+     "content": "Die Mail-Zugangsdaten (Host, Port, Benutzer, Passwort, Ordner) "
+                "stehen in res/service_config.json; DB-URL und Anthropic-API-Key "
+                "kommen aus der .env. Für Gmail wird ein App-Passwort und der Server "
+                "imap.gmail.com:993 benötigt. Es werden nur ungelesene Mails "
+                "verarbeitet und danach als gelesen markiert."},
+
+    # ── Fehlerdiagnose & Anleitungen (ausführlich) ──────────────────────────
+    {"cat": "Fehlerdiagnose",
+     "title": "Fehlerdiagnose: Fehlercodes nachschlagen und eigene anlegen",
+     "content": "Die Fehlerdiagnose ist eine Master-Detail-Ansicht je Gerätesystem. "
+                "Daten liegen in res/fd/<system>.json; die Systemliste in "
+                "res/fd/systeme.json. Über die Suche findest du Fehler und Lösungen; "
+                "neue Systeme und Einträge lassen sich direkt im Tool anlegen und "
+                "speichern. Diese Einträge durchsucht auch der Service-Assistent."},
+    {"cat": "Anleitungen",
+     "title": "Anleitungen: Kategorien, Suche und PDF-Verweis",
+     "content": "Anleitungen liegen je Kategorie in res/anl/<kategorie>.json. Oben "
+                "kann eine einzelne Kategorie oder 'Alle' (Voreinstellung) gewählt "
+                "werden; die Spalte 'Kategorie' zeigt die Zuordnung (z.B. Hotline). "
+                "Gesucht wird in Titel UND Inhalt; Titeltreffer werden bevorzugt. "
+                "Einträge können auf eine zugehörige PDF verweisen."},
+
+    # ── Lager & Dashboard (Demo) ────────────────────────────────────────────
+    {"cat": "Mein Lager",
+     "title": "Mein Lager: Bestand, Unterbestands-Warnung, PDF",
+     "content": "Mein Lager zeigt den persönlichen Fahrzeug-/Kofferbestand mit Suche "
+                "und Unterbestands-Warnung und kann als PDF exportiert werden (nutzt "
+                "QPdfWriter, keine Zusatzbibliothek nötig). Aktuell sind die Bestände "
+                "Beispieldaten (Mock); später ist ein read-only SAP-Zugriff geplant."},
+    {"cat": "Dashboard",
+     "title": "Dashboard 'Meine Woche' (Vorschau)",
+     "content": "Das Dashboard zeigt KPI-Karten (Stunden, offene Aufträge, "
+                "gefahrene km, verbaute Teile), ein Wochen-Chart (Stunden je "
+                "Wochentag) und die nächsten Termine. Aktuell sind das Beispieldaten "
+                "(Mock); Layout und Chart funktionieren bereits, später kommen echte "
+                "Daten aus Arbeitszeiten/Reisekosten und Salesforce."},
+
+    # ── Einstellungen / Update / Technik ────────────────────────────────────
+    {"cat": "Einstellungen",
+     "title": "Farbthema und Export-Ordner anpassen",
+     "content": "Unter Einstellungen lassen sich persönliche Daten, der "
+                "Export-Zielordner für Excel/PDF, das Farbthema (einzelne Farben per "
+                "Farbwähler) sowie die Update-URL und die automatische Update-Prüfung "
+                "einstellen. Farbänderungen werden nach einem Neustart wirksam."},
+    {"cat": "Update",
+     "title": "Programm aktualisieren (Selbst-Update)",
+     "content": "Das Tool prüft (optional beim Start oder manuell) eine hinterlegte "
+                "version.json-URL und bietet bei neuerer Version ein Update an. Der "
+                "Download läuft nur über HTTPS und wird per SHA-256-Prüfsumme "
+                "verifiziert; stimmt sie nicht, wird abgebrochen. Der letzte "
+                "Prüfstand erscheint auf der Info-Seite."},
+    {"cat": "Technik",
+     "title": "Technische Basis (Python, PyQt6, Daten)",
+     "content": "Das Service Tool ist in Python (py) ab 3.10 mit PyQt6 geschrieben. "
+                "Alle Daten liegen lokal im res-Ordner als JSON (Arbeitszeiten in "
+                "res/kw_data, Kataloge in res/et, res/fd, res/anl, Bestellungen in "
+                "res/orders). Externe Zugriffe nur auf Salesforce, die Service-DB und "
+                "das Mail-Postfach. Der Service-Assistent arbeitet komplett offline."},
+    {"cat": "Datenschutz",
+     "title": "Welche Daten verlassen den PC?",
+     "content": "Lokal bleibt alles im res-Ordner. Internet wird nur genutzt für: "
+                "Salesforce-Anmeldung/-Import, die Serviceberichts-Datenbank, den "
+                "Mail-Abruf und die optionale Update-Prüfung. Für die automatische "
+                "Berichtsanalyse werden PDF-Inhalte an die Claude-API gesendet "
+                "(API-Key aus der .env). Der Assistent selbst sendet nichts."},
+
+    # ── Service-Assistent (Bedienung) ───────────────────────────────────────
+    {"cat": "Service-Assistent",
+     "title": "Assistent findet nichts / eigenes Wissen ergänzen",
+     "content": "Der Assistent durchsucht Fehlerdiagnose (res/fd), Anleitungen "
+                "(res/anl), die Programm-Hilfe und zusätzliche Dokumentation in "
+                "res/docs (.md je Überschrift, .json im entries-Format). Nach dem "
+                "Hinzufügen oder Ändern einer Datei auf 'Wissen neu laden' klicken "
+                "(kein Neustart nötig). Findet die Suche nichts, mit anderen "
+                "Stichworten versuchen — Bauteil, Fehlertext oder Menüname statt "
+                "ganzer Sätze."},
 ]
 
 
 def _tokens(text):
-    """Zerlegt Text in bedeutungstragende Kleinbuchstaben-Wörter."""
+    """Zerlegt Text in bedeutungstragende Kleinbuchstaben-Wörter.
+
+    Wörter ab 2 Zeichen werden berücksichtigt — kurze, aber bedeutungsvolle
+    Fach-/Abkürzungen wie 'sf' (Salesforce), 'kw', 'pdf', 'sap', 'py' oder 'et'
+    sollen suchbar sein. Nur 1-Zeichen-Reste und Stopwörter werden verworfen."""
     return [t for t in re.findall(r"\w+", (text or "").lower())
-            if len(t) > 2 and t not in _STOPWORDS]
+            if len(t) >= 2 and t not in _STOPWORDS]
 
 
 def _split_markdown(text, default_title):
@@ -195,6 +368,14 @@ class AssistentSeite(QWidget):
         for e in PROGRAMM_HILFE:
             self._add_doc("Programm-Hilfe", "Service Tool", e)
 
+        # Programm-Referenz (Module, Modul-Docstrings) automatisch aus den
+        # vorhandenen Quellen erzeugen — wird danach mit eingelesen.
+        try:
+            from wissen_generator import programm_wissen_schreiben
+            programm_wissen_schreiben()
+        except Exception:
+            pass
+
         # Zusätzliche Dokumentation aus res/docs (optional)
         self._lade_dokumentation()
 
@@ -256,7 +437,7 @@ class AssistentSeite(QWidget):
 
     def _build(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 16, 20, 16)
+        root.setContentsMargins(30, 24, 30, 24)
         root.setSpacing(12)
 
         root.addWidget(page_hero(
@@ -286,6 +467,10 @@ class AssistentSeite(QWidget):
         self._eingabe.returnPressed.connect(self._frage_stellen)
         bl.addWidget(self._eingabe, 1)
         bl.addWidget(btn("Senden", self._frage_stellen, color=C["accent"]))
+        bl.addWidget(btn("🔄 Wissen neu laden", self._wissen_neu_laden,
+                         "Liest Fehlerdiagnose, Anleitungen, Programm-Hilfe und die "
+                         "Dokumentation aus res/docs erneut ein — z.B. nach dem "
+                         "Hinzufügen oder Ändern einer Datei (kein Neustart nötig)."))
         bl.addWidget(btn("Verlauf leeren", self._verlauf_leeren))
         root.addWidget(bar)
 
@@ -404,3 +589,16 @@ class AssistentSeite(QWidget):
     def _verlauf_leeren(self):
         self._chat.clear()
         self._begruessung()
+
+    def _wissen_neu_laden(self):
+        """Lädt alle Wissensquellen neu (Fehlerdiagnose, Anleitungen,
+        Programm-Hilfe und res/docs) — nützlich, wenn während des Programmlaufs
+        eine Datei hinzugefügt oder geändert wurde (vermeidet einen Neustart)."""
+        vorher = len(self._docs)
+        self._lade_wissen()
+        nachher = len(self._docs)
+        self._append_bot(
+            f"Wissen neu eingelesen: jetzt <b>{nachher}</b> Einträge "
+            f"(vorher {vorher}). Quellen: Fehlerdiagnose, Anleitungen, "
+            f"Programm-Hilfe und <code>res/docs</code> (*.md, *.json).")
+        self.status_msg.emit(f"🔄  Wissen neu geladen ({nachher} Einträge).")

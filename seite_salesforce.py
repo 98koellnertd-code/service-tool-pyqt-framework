@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QFrame, QTabWidget,
     QLineEdit, QPushButton, QMessageBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
 from utils import C, SF_INSTANCE_URL, btn, lbl, make_entry, page_hero
 from workers import SFSessionWorker, SFOAuthWorker
@@ -31,8 +31,10 @@ from workers import SFSessionWorker, SFOAuthWorker
 class SalesforcePage(QWidget):
     """Salesforce-Anmeldeseite mit den Verbindungsoptionen."""
 
-    sf_connected    = pyqtSignal(str, str, str, str)  # token, inst_url, user_id, name
-    sf_disconnected = pyqtSignal()
+    sf_connected       = pyqtSignal(str, str, str, str)  # token, inst_url, user_id, name
+    sf_disconnected    = pyqtSignal()
+    sap_status_changed = pyqtSignal(str, str)           # state ("ok"/"err"/"warn"), text
+    tia_status_changed = pyqtSignal(str, str)           # state ("ok"/"err"/"warn"), text
 
     def __init__(self, profile, parent=None):
         super().__init__(parent)
@@ -56,31 +58,20 @@ class SalesforcePage(QWidget):
         provider_tabs = QTabWidget()
         root.addWidget(provider_tabs, 1)
         provider_tabs.addTab(self._build_salesforce_tab(), "  Salesforce  ")
-        provider_tabs.addTab(self._placeholder_tab(
-            "SAP",
-            "SAP-Verbindung (read-only) — in Vorbereitung",
-            "Geplant: Lagerbestände je Techniker auslesen (siehe Menü »Mein Lager«), "
-            "perspektivisch weitere Stammdaten.",
-            ["SAP-System / Host", "Mandant", "Benutzer", "Passwort"],
-        ), "  SAP  ")
-        provider_tabs.addTab(self._placeholder_tab(
-            "TIA Portal",
-            "TIA-Portal-Verbindung — in Vorbereitung",
-            "Geplant: Servicezeiten bzw. Daten direkt an TIA übergeben.",
-            ["Endpunkt / Adresse", "Projekt", "Benutzer", "Passwort"],
-        ), "  TIA Portal  ")
+        provider_tabs.addTab(self._build_sap_tab(), "  SAP  ")
+        provider_tabs.addTab(self._build_tia_tab(), "  TIA Portal  ")
 
     # ── Tab: Salesforce (aktiv) ────────────────────────────────────────────────
 
     def _build_salesforce_tab(self):
         page = QWidget()
         root = QVBoxLayout(page)
-        root.setContentsMargins(0, 12, 0, 0)
+        root.setContentsMargins(20, 16, 20, 16)
         root.setSpacing(12)
 
         # Status-Anzeige
         status_frame = QFrame()
-        status_frame.setStyleSheet(f"background:{C['surface']}; border-radius:8px; padding:4px;")
+        status_frame.setStyleSheet(f"background:{C['surface']}; border-radius:8px;")
         sl = QHBoxLayout(status_frame)
         sl.setContentsMargins(14, 10, 14, 10)
         self._status_dot = lbl("●", C["red"], size=14)
@@ -141,6 +132,7 @@ class SalesforcePage(QWidget):
         sid_row = QHBoxLayout()
         sid_row.addWidget(self._sid_edit)
         sid_row.addWidget(show_cb)
+        sid_row.addStretch()
         fl_sid.addRow("Session ID:", sid_row)
         tl1.addLayout(fl_sid)
 
@@ -206,7 +198,198 @@ class SalesforcePage(QWidget):
         root.addStretch()
         return page
 
-    # ── Platzhalter-Tab für noch nicht aktive Verbindungen (SAP, TIA) ──────────
+    # ── Tab: SAP (Demo-Verbindung) ────────────────────────────────────────────
+
+    def _build_sap_tab(self):
+        self._sap_connected = False
+        page = QWidget()
+        v = QVBoxLayout(page)
+        v.setContentsMargins(20, 16, 20, 16)
+        v.setSpacing(12)
+
+        # Status-Anzeige
+        status_frame = QFrame()
+        status_frame.setStyleSheet(f"background:{C['surface']}; border-radius:8px;")
+        sl = QHBoxLayout(status_frame)
+        sl.setContentsMargins(14, 10, 14, 10)
+        self._sap_dot = lbl("●", C["red"], size=14)
+        self._sap_status_txt = lbl("Nicht verbunden", C["subtext"])
+        sl.addWidget(self._sap_dot)
+        sl.addWidget(self._sap_status_txt)
+        sl.addStretch()
+        sap_disc = btn("Trennen", self._sap_disconnect, "Demo-Verbindung trennen")
+        sap_disc.setStyleSheet(
+            f"QPushButton{{background:transparent;border:none;color:{C['red']};}} "
+            f"QPushButton:hover{{color:{C['text']};}}")
+        sl.addWidget(sap_disc)
+        v.addWidget(status_frame)
+
+        # Info-Box
+        info = QFrame()
+        info.setStyleSheet(f"background:{C['surface2']}; border-radius:7px;")
+        il = QVBoxLayout(info)
+        il.setContentsMargins(14, 12, 14, 12)
+        il.setSpacing(4)
+        il.addWidget(lbl("🏭  SAP — Demo-Testverbindung", C["accent"], bold=True))
+        desc = lbl(
+            "Simuliert eine SAP-Verbindung (read-only). "
+            "Geplant: Lagerbestände je Techniker auslesen (Menü »Mein Lager«) "
+            "sowie perspektivisch weitere Stammdaten. "
+            "Die Demo überträgt keine echten Daten.",
+            C["subtext"], size=9)
+        desc.setWordWrap(True)
+        il.addWidget(desc)
+        il.addWidget(lbl("⚠  Noch nicht produktiv — Demo-Modus.", C["yellow"], size=9))
+        v.addWidget(info)
+
+        # Eingabefelder
+        form = QFormLayout()
+        form.setSpacing(8)
+        self._sap_host    = make_entry("z.B. sap-erp.firma.intern")
+        self._sap_mandant = make_entry("z.B. 100")
+        self._sap_user    = make_entry("Benutzername")
+        self._sap_pw      = make_entry("Passwort", pw=True)
+        form.addRow("SAP-System / Host:", self._sap_host)
+        form.addRow("Mandant:",           self._sap_mandant)
+        form.addRow("Benutzer:",          self._sap_user)
+        form.addRow("Passwort:",          self._sap_pw)
+        v.addLayout(form)
+
+        self._sap_btn = btn(
+            "🏭  Demo-Verbindung testen", self._sap_connect,
+            "Simuliert eine SAP-Verbindung (Demo-Modus, keine echten Daten)",
+            color=C["accent"])
+        v.addWidget(self._sap_btn)
+        v.addStretch()
+        return page
+
+    def _sap_connect(self):
+        self._sap_set_status("warn", "Verbinde…")
+        self._sap_btn.setEnabled(False)
+        QTimer.singleShot(1200, self._sap_demo_success)
+
+    def _sap_demo_success(self):
+        host    = self._sap_host.text().strip() or "SAP Demo Server"
+        mandant = self._sap_mandant.text().strip()
+        label   = host + (f" · Mandant {mandant}" if mandant else "")
+        self._sap_connected = True
+        self._sap_set_status("ok", f"Demo aktiv  ·  {label}")
+        self._sap_btn.setEnabled(True)
+        self._sap_btn.setText("🏭  Demo neu verbinden")
+        self.sap_status_changed.emit("ok", label)
+
+    def _sap_disconnect(self):
+        self._sap_connected = False
+        self._sap_set_status("err", "Nicht verbunden")
+        self._sap_btn.setEnabled(True)
+        self._sap_btn.setText("🏭  Demo-Verbindung testen")
+        self.sap_status_changed.emit("err", "")
+
+    def _sap_set_status(self, state, text):
+        colors = {"ok": C["green"], "warn": C["yellow"], "err": C["red"]}
+        col = colors.get(state, C["red"])
+        self._sap_dot.setStyleSheet(f"color:{col}; font-size:14pt;")
+        self._sap_status_txt.setText(text)
+        self._sap_status_txt.setStyleSheet(
+            f"color:{col if state != 'err' else C['subtext']};")
+
+    # ── Tab: TIA Portal (Demo-Verbindung) ─────────────────────────────────────
+
+    def _build_tia_tab(self):
+        self._tia_connected = False
+        page = QWidget()
+        v = QVBoxLayout(page)
+        v.setContentsMargins(20, 16, 20, 16)
+        v.setSpacing(12)
+
+        # Status-Anzeige
+        status_frame = QFrame()
+        status_frame.setStyleSheet(f"background:{C['surface']}; border-radius:8px;")
+        sl = QHBoxLayout(status_frame)
+        sl.setContentsMargins(14, 10, 14, 10)
+        self._tia_dot  = lbl("●", C["red"], size=14)
+        self._tia_txt  = lbl("Nicht verbunden", C["subtext"])
+        sl.addWidget(self._tia_dot)
+        sl.addWidget(self._tia_txt)
+        sl.addStretch()
+        tia_disc = btn("Trennen", self._tia_disconnect, "Demo-Verbindung trennen")
+        tia_disc.setStyleSheet(
+            f"QPushButton{{background:transparent;border:none;color:{C['red']};}} "
+            f"QPushButton:hover{{color:{C['text']};}}")
+        sl.addWidget(tia_disc)
+        v.addWidget(status_frame)
+
+        # Info-Box
+        info = QFrame()
+        info.setStyleSheet(f"background:{C['surface2']}; border-radius:7px;")
+        il = QVBoxLayout(info)
+        il.setContentsMargins(14, 12, 14, 12)
+        il.setSpacing(4)
+        il.addWidget(lbl("🔌  TIA Portal — Demo-Testverbindung", C["accent"], bold=True))
+        desc = lbl(
+            "Simuliert eine Verbindung zum TIA Portal. "
+            "Die Demo-Verbindung überträgt keine echten Daten — "
+            "sie zeigt, wie die spätere Anbindung aussehen wird "
+            "(Datenübergabe von Servicezeiten an TIA-Projekte).",
+            C["subtext"], size=9)
+        desc.setWordWrap(True)
+        il.addWidget(desc)
+        il.addWidget(lbl("⚠  Noch nicht produktiv — Demo-Modus.", C["yellow"], size=9))
+        v.addWidget(info)
+
+        # Eingabefelder (deaktiviert im Demo-Modus — trotzdem ausfüllbar zum Testen)
+        form = QFormLayout()
+        form.setSpacing(8)
+        self._tia_host    = make_entry("z.B. 192.168.0.10 oder tia-server.intern")
+        self._tia_projekt = make_entry("z.B. Projekt_Anlage_01")
+        self._tia_user    = make_entry("Benutzername")
+        self._tia_pw      = make_entry("Passwort", pw=True)
+        form.addRow("Endpunkt / Host:", self._tia_host)
+        form.addRow("Projekt:",         self._tia_projekt)
+        form.addRow("Benutzer:",        self._tia_user)
+        form.addRow("Passwort:",        self._tia_pw)
+        v.addLayout(form)
+
+        # Verbinden-Button
+        self._tia_btn = btn(
+            "🔌  Demo-Verbindung testen", self._tia_connect,
+            "Simuliert eine TIA-Portal-Verbindung (Demo-Modus, keine echten Daten)",
+            color=C["accent"])
+        v.addWidget(self._tia_btn)
+        v.addStretch()
+        return page
+
+    def _tia_connect(self):
+        """Simuliert einen Verbindungsaufbau mit kurzem Delay (Demo)."""
+        self._tia_set_status("warn", "Verbinde…")
+        self._tia_btn.setEnabled(False)
+        QTimer.singleShot(1400, self._tia_demo_success)
+
+    def _tia_demo_success(self):
+        host = self._tia_host.text().strip() or "TIA Demo Server"
+        proj = self._tia_projekt.text().strip()
+        label = f"{host}" + (f" · {proj}" if proj else "")
+        self._tia_connected = True
+        self._tia_set_status("ok", f"Demo aktiv  ·  {label}")
+        self._tia_btn.setEnabled(True)
+        self._tia_btn.setText("🔌  Demo neu verbinden")
+        self.tia_status_changed.emit("ok", label)
+
+    def _tia_disconnect(self):
+        self._tia_connected = False
+        self._tia_set_status("err", "Nicht verbunden")
+        self._tia_btn.setEnabled(True)
+        self._tia_btn.setText("🔌  Demo-Verbindung testen")
+        self.tia_status_changed.emit("err", "")
+
+    def _tia_set_status(self, state, text):
+        colors = {"ok": C["green"], "warn": C["yellow"], "err": C["red"]}
+        col = colors.get(state, C["red"])
+        self._tia_dot.setStyleSheet(f"color:{col}; font-size:14pt;")
+        self._tia_txt.setText(text)
+        self._tia_txt.setStyleSheet(f"color:{col if state != 'err' else C['subtext']};")
+
+    # ── Platzhalter-Tab für noch nicht aktive Verbindungen (SAP) ──────────────
 
     def _placeholder_tab(self, name, titel, beschreibung, felder):
         """Baut einen vorbereiteten, aber noch inaktiven Verbindungs-Tab —

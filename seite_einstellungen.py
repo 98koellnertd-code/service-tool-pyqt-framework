@@ -218,10 +218,15 @@ class EinstellungenPage(QWidget):
         for i, key in enumerate(COLOR_LABELS):
             row, col = divmod(i, cols)
             b = self._make_color_swatch(key)
-            grid.addWidget(lbl(COLOR_LABELS[key], C["text"]), row, col * 2)
-            grid.addWidget(b, row, col * 2 + 1)
+            grid.addWidget(b, row, col * 2)
+            grid.addWidget(lbl(COLOR_LABELS[key], C["text"]), row, col * 2 + 1)
             self._color_buttons[key] = b
         g4l.addLayout(grid)
+
+        # Live-Vorschau des Themes (aktualisiert sich sofort bei jeder Änderung,
+        # ohne Neustart — zeigt, wie die gewählten Farben zusammenwirken).
+        g4l.addWidget(lbl("Vorschau:", C["text"], bold=True, size=9))
+        g4l.addWidget(self._build_theme_preview())
 
         color_btns_row = QVBoxLayout()
         reset_btn = btn("↺  Auf Standardfarben zurücksetzen", self._reset_colors,
@@ -235,6 +240,86 @@ class EinstellungenPage(QWidget):
         lay.addWidget(g4)
 
         lay.addStretch()
+
+    def _build_theme_preview(self):
+        """Kleines Mock-UI, das die aktuell gewählten Farben (self._pending_colors)
+        live darstellt — wird bei jeder Farbänderung über _update_theme_preview
+        neu eingefärbt."""
+        f = QFrame()
+        self._pv_frame = f
+        v = QVBoxLayout(f)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+
+        self._pv_header = lbl("  Themen-Vorschau", C["accent"], bold=True, size=10)
+        self._pv_header.setFixedHeight(28)
+        v.addWidget(self._pv_header)
+
+        body = QFrame()
+        self._pv_body = body
+        bl = QVBoxLayout(body)
+        bl.setContentsMargins(12, 10, 12, 12)
+        bl.setSpacing(8)
+
+        self._pv_card = QFrame()
+        cl = QVBoxLayout(self._pv_card)
+        cl.setContentsMargins(12, 10, 12, 10)
+        cl.setSpacing(4)
+        self._pv_title = lbl("Überschrift", C["text"], bold=True, size=11)
+        self._pv_text  = lbl("Normaler Text in der Oberfläche", C["text"], size=10)
+        self._pv_sub   = lbl("Untertitel / Beschreibung", C["subtext"], size=10)
+        self._pv_dim   = lbl("Ausgegrauter Hinweis", C["dimtext"], size=10)
+        for w in (self._pv_title, self._pv_text, self._pv_sub, self._pv_dim):
+            cl.addWidget(w)
+
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        # Chips spiegeln die tatsächliche Button-Farb-Bedeutung im Tool wider.
+        self._pv_btn     = lbl("  Aktion  ", "#ffffff", size=10)
+        self._pv_save    = lbl(" Speichern ", "#ffffff", size=9)
+        self._pv_export  = lbl(" Export ", "#ffffff", size=9)
+        self._pv_special = lbl(" Sonderfkt. ", "#000000", size=9)
+        self._pv_err     = lbl(" Löschen ", "#ffffff", size=9)
+        for w in (self._pv_btn, self._pv_save, self._pv_export,
+                  self._pv_special, self._pv_err):
+            row.addWidget(w)
+        row.addStretch()
+        cl.addLayout(row)
+
+        bl.addWidget(self._pv_card)
+        v.addWidget(body)
+
+        self._update_theme_preview()
+        return f
+
+    def _update_theme_preview(self):
+        """Färbt die Vorschau anhand von self._pending_colors neu ein."""
+        def col(k):
+            return self._pending_colors.get(k, DEFAULT_COLORS.get(k, "#888888"))
+        self._pv_frame.setStyleSheet(
+            f"QFrame {{ background:{col('bg')}; border:1px solid {col('border')};"
+            f" border-radius:8px; }}")
+        self._pv_header.setStyleSheet(
+            f"background:{col('header')}; color:{col('accent')}; font-weight:bold;"
+            f" font-size:10px; border-top-left-radius:8px;"
+            f" border-top-right-radius:8px; padding-left:10px;")
+        self._pv_body.setStyleSheet("background:transparent; border:none;")
+        self._pv_card.setStyleSheet(
+            f"background:{col('surface')}; border:1px solid {col('border')};"
+            f" border-left:3px solid {col('accent')}; border-radius:6px;")
+        self._pv_title.setStyleSheet(f"color:{col('text')}; font-weight:bold; font-size:11px;")
+        self._pv_text.setStyleSheet(f"color:{col('text')}; font-size:10px;")
+        self._pv_sub.setStyleSheet(f"color:{col('subtext')}; font-size:10px;")
+        self._pv_dim.setStyleSheet(f"color:{col('dimtext')}; font-size:10px;")
+        chip = ("background:{bg}; color:{fg}; border-radius:4px;"
+                " padding:3px 8px; font-size:9px; font-weight:bold;")
+        self._pv_btn.setStyleSheet(
+            f"background:{col('accent')}; color:#ffffff; border-radius:4px;"
+            f" padding:3px 10px; font-size:10px; font-weight:bold;")
+        self._pv_save.setStyleSheet(chip.format(bg=col('green'),  fg="#ffffff"))
+        self._pv_export.setStyleSheet(chip.format(bg=col('mauve'), fg="#ffffff"))
+        self._pv_special.setStyleSheet(chip.format(bg=col('yellow'), fg="#000000"))
+        self._pv_err.setStyleSheet(chip.format(bg=col('red'),    fg="#ffffff"))
 
     def _make_color_swatch(self, key):
         """Quadratischer Button, der die aktuelle Farbe von 'key' anzeigt und
@@ -258,11 +343,13 @@ class EinstellungenPage(QWidget):
             hex_code = chosen.name()
             self._pending_colors[key] = hex_code
             self._style_swatch(self._color_buttons[key], hex_code)
+            self._update_theme_preview()
 
     def _reset_colors(self):
         self._pending_colors = dict(DEFAULT_COLORS)
         for key, button in self._color_buttons.items():
             self._style_swatch(button, self._pending_colors[key])
+        self._update_theme_preview()
 
     def _apply_palette(self, palette_key):
         """Übernimmt eine der drei Standardpaletten in _pending_colors und
@@ -274,6 +361,7 @@ class EinstellungenPage(QWidget):
         self._pending_colors = dict(palette["colors"])
         for key, button in self._color_buttons.items():
             self._style_swatch(button, self._pending_colors.get(key, DEFAULT_COLORS[key]))
+        self._update_theme_preview()
 
     def _save_colors_and_restart(self):
         antwort = QMessageBox.question(

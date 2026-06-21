@@ -1,0 +1,2171 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+TimingTool — Arbeitszeiten & Reisekosten Verwaltung
+PyQt6-Desktopanwendung für Salesforce FSL (Field Service Lightning)
+Lokale Speicherung: res/kw_data/ neben der EXE
+"""
+
+import sys, os, json, datetime, calendar, urllib.request, urllib.parse
+import webbrowser, copy, shutil
+from collections import defaultdict
+
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QFrame, QScrollArea, QSplitter,
+    QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, QStackedWidget,
+    QLabel, QPushButton, QLineEdit, QComboBox, QSpinBox, QTabWidget,
+    QSizePolicy, QMessageBox, QFileDialog, QInputDialog, QGroupBox,
+    QAbstractItemView
+)
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize
+from PyQt6.QtGui import QFont, QIcon, QColor, QPalette
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Pfade
+# ══════════════════════════════════════════════════════════════════════════════
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+RES_DIR       = os.path.join(BASE_DIR, "res")
+KW_DIR        = os.path.join(RES_DIR, "kw_data")
+TEMPLATES_DIR = os.path.join(RES_DIR, "templates")
+PROFILE_FILE  = os.path.join(RES_DIR, "user_profile.json")
+KUNDEN_FILE   = os.path.join(RES_DIR, "kunden_vorlagen.json")
+ICON_FILE     = os.path.join(BASE_DIR, "icon.ico")
+
+for _d in [RES_DIR, KW_DIR, TEMPLATES_DIR]:
+    os.makedirs(_d, exist_ok=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Konstanten
+# ══════════════════════════════════════════════════════════════════════════════
+APP_VERSION     = "2.0"
+SF_INSTANCE_URL = "https://koenig-bauer.my.salesforce.com"
+SF_API_VER      = "v59.0"
+
+DAY_NAMES   = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+MONTH_NAMES = ["Januar","Februar","März","April","Mai","Juni",
+               "Juli","August","September","Oktober","November","Dezember"]
+STATUS_OPTIONS = ["Arbeit","Krank","Urlaub","Kurzarbeit","GLZ","Feiertag","Sonstiges","Frei"]
+
+ALLGEMEIN_CODES = {
+    "0010":"Customer Preparation", "0020":"Service Hotline",
+    "0030":"Maintenance of Rental Equipment", "0040":"Department of Rental Equipment",
+    "0050":"Cleaning Service", "0060":"Internal Meetings / Trainings",
+    "0070":"Inventory Service", "0080":"Materials Management Activities",
+    "0090":"Documentation Activities", "0100":"Fixture Construction",
+    "0120":"Inspection of Returns", "0130":"Proactive Customer Service",
+    "0140":"Automotive Workshop / Inspection", "0180":"Preparation Training Documents",
+    "0190":"Dealer & Subsidiary Support", "0200":"Online Training Preparation",
+    "2100":"Activities Service Cloud",
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Farbpalette
+# ══════════════════════════════════════════════════════════════════════════════
+C = {
+    "bg":      "#1e1e2e", "surface":  "#252536", "surface2": "#2d2d47",
+    "overlay": "#383858", "header":   "#14141f", "border":   "#44446a",
+    "text":    "#cdd6f4", "subtext":  "#a6adc8", "dimtext":  "#6c6c8a",
+    "accent":  "#89b4fa", "green":    "#a6e3a1", "red":      "#f38ba8",
+    "yellow":  "#f9e2af", "mauve":    "#cba6f7",
+    # Tag-Status-Farben
+    "krank_bg":  "#3a1520", "urlaub_bg": "#2a2a12", "we_bg": "#1a1a28",
+    "glz_bg":    "#1a2a3a",
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Stylesheet
+# ══════════════════════════════════════════════════════════════════════════════
+STYLE = f"""
+* {{ font-family: "Segoe UI"; font-size: 10pt; color: {C["text"]}; }}
+QMainWindow, QWidget {{ background-color: {C["bg"]}; }}
+QDialog {{ background-color: {C["surface"]}; }}
+
+/* Scrollbars */
+QScrollBar:vertical {{ background:{C["bg"]}; width:8px; border-radius:4px; }}
+QScrollBar::handle:vertical {{ background:{C["border"]}; border-radius:4px; min-height:24px; }}
+QScrollBar::handle:vertical:hover {{ background:{C["subtext"]}; }}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
+QScrollBar:horizontal {{ background:{C["bg"]}; height:8px; border-radius:4px; }}
+QScrollBar::handle:horizontal {{ background:{C["border"]}; border-radius:4px; }}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width:0; }}
+
+/* Eingabefelder */
+QLineEdit, QSpinBox {{
+    background:{C["surface2"]}; border:1px solid {C["border"]};
+    border-radius:5px; padding:4px 8px; color:{C["text"]};
+    selection-background-color:{C["accent"]};
+}}
+QLineEdit:focus, QSpinBox:focus {{ border:1px solid {C["accent"]}; }}
+QLineEdit[echoMode="2"] {{ letter-spacing:2px; }}
+
+/* ComboBox */
+QComboBox {{
+    background:{C["surface2"]}; border:1px solid {C["border"]};
+    border-radius:5px; padding:4px 8px; color:{C["text"]};
+}}
+QComboBox:focus {{ border:1px solid {C["accent"]}; }}
+QComboBox::drop-down {{ border:none; width:18px; }}
+QComboBox QAbstractItemView {{
+    background:{C["surface"]}; border:1px solid {C["border"]};
+    selection-background-color:{C["overlay"]}; outline:none;
+    color:{C["text"]};
+}}
+
+/* Buttons */
+QPushButton {{
+    background:{C["surface2"]}; border:1px solid {C["border"]};
+    border-radius:7px; padding:6px 14px; color:{C["text"]};
+}}
+QPushButton:hover {{ background:{C["overlay"]}; border-color:{C["accent"]}; }}
+QPushButton:pressed {{ background:{C["border"]}; }}
+QPushButton:disabled {{ color:{C["dimtext"]}; border-color:{C["border"]}; }}
+
+/* Tabs */
+QTabWidget::pane {{ border:1px solid {C["border"]}; border-radius:6px; background:{C["surface"]}; }}
+QTabBar::tab {{
+    background:{C["surface2"]}; border:1px solid {C["border"]};
+    border-bottom:none; border-radius:5px 5px 0 0;
+    padding:7px 18px; color:{C["subtext"]}; margin-right:2px;
+}}
+QTabBar::tab:selected {{ background:{C["surface"]}; color:{C["accent"]}; }}
+QTabBar::tab:hover:!selected {{ background:{C["overlay"]}; color:{C["text"]}; }}
+
+/* GroupBox */
+QGroupBox {{
+    border:1px solid {C["border"]}; border-radius:7px;
+    margin-top:12px; padding-top:6px; color:{C["accent"]}; font-weight:bold;
+}}
+QGroupBox::title {{ subcontrol-origin:margin; left:12px; padding:0 5px; }}
+
+/* Splitter */
+QSplitter::handle {{ background:{C["border"]}; }}
+QSplitter::handle:vertical {{ height:2px; }}
+QSplitter::handle:horizontal {{ width:2px; }}
+
+/* ToolTip */
+QToolTip {{
+    background:{C["surface"]}; border:1px solid {C["border"]};
+    color:{C["text"]}; padding:4px 8px; border-radius:4px;
+}}
+QStatusBar {{ background:{C["header"]}; color:{C["subtext"]}; border-top:1px solid {C["border"]}; font-size:9pt; }}
+"""
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Hilfsfunktionen
+# ══════════════════════════════════════════════════════════════════════════════
+
+def load_json(path, default=None):
+    """JSON-Datei laden, gibt default zurück wenn nicht vorhanden."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default if default is not None else {}
+
+def save_json(path, data):
+    """Daten als JSON speichern (UTF-8, eingerückt)."""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception:
+        return False
+
+def current_kw():
+    """Aktuelle (KW, Jahr) zurückgeben."""
+    iso = datetime.date.today().isocalendar()
+    return iso[1], iso[0]
+
+def week_dates(year, week):
+    """7 date-Objekte für ISO-KW (Mo–So)."""
+    jan4  = datetime.date(year, 1, 4)
+    start = jan4 - datetime.timedelta(days=jan4.isoweekday() - 1)
+    start += datetime.timedelta(weeks=week - 1)
+    return [start + datetime.timedelta(days=i) for i in range(7)]
+
+def calc_entry_hours(entry):
+    """Netto-Stunden eines Eintrags berechnen."""
+    try:
+        s = datetime.datetime.strptime(entry.get("start",""), "%H:%M")
+        e = datetime.datetime.strptime(entry.get("end",  ""), "%H:%M")
+        p = int(entry.get("pause", 0) or 0)
+        return max(0.0, (e - s).seconds / 3600 - p / 60)
+    except Exception:
+        return 0.0
+
+def calc_day_hours(day):
+    """Tages-Netto-Stunden (summiert alle Einträge)."""
+    entries = [e for e in day.get("entries",[]) if e.get("start") and e.get("end")]
+    if entries:
+        return sum(calc_entry_hours(e) for e in entries)
+    return calc_entry_hours(day)
+
+def entry_detail_text(entry, wohnort="Wohnort"):
+    """Detail-Text für einen Eintrag (Route oder Allgemeinkosten-Code)."""
+    dienst = entry.get("dienst","Außendienst")
+    if dienst in ("Innendienst","Homeoffice","Home Office"):
+        code = entry.get("allg_code","")
+        bez  = ALLGEMEIN_CODES.get(code,"")
+        return f"{code} – {bez}" if code else "Innendienst"
+    start = (entry.get("start_punkt") or wohnort).strip()
+    loc   = (entry.get("standort") or "").strip()
+    kunde = (entry.get("kunde_name") or "").strip()
+    auftr = entry.get("auftr_nr","").strip()
+    end   = (entry.get("end_punkt") or wohnort).strip()
+    lok   = loc or kunde
+    stop  = f"{lok} ({auftr})" if lok and auftr else lok or auftr or ""
+    parts = [p for p in [start, stop, end] if p]
+    route = " → ".join(parts)
+    prefix = f"{kunde}: " if kunde and kunde != lok else ""
+    return f"{prefix}{route}"
+
+def get_month_summary(year, month, override=None):
+    """Monats-Stunden und Gleitzeitkonto berechnen."""
+    total, gleit, SOLL = 0.0, 0.0, 8.0
+    override = override or {}
+    for dn in range(1, calendar.monthrange(year, month)[1] + 1):
+        d  = datetime.date(year, month, dn)
+        ds = d.isoformat()
+        if ds in override:
+            day = override[ds]
+        else:
+            iso = d.isocalendar()
+            data = load_json(os.path.join(KW_DIR, f"{iso[0]}-W{iso[1]:02d}.json"), {})
+            day  = data.get(ds, {})
+        if not day:
+            continue
+        status = day.get("status", "Frei" if d.weekday() >= 5 else "Arbeit")
+        h = calc_day_hours(day)
+        total += h
+        if d.weekday() < 5:
+            if status == "Arbeit":
+                gleit += h - SOLL
+            elif status in ("GLZ","Kurzarbeit"):
+                gleit -= SOLL
+    return total, round(gleit, 2)
+
+def load_month_data(year, month):
+    """Alle Tagesdaten eines Monats aus KW-JSON-Dateien laden."""
+    result, seen = {}, set()
+    for dn in range(1, calendar.monthrange(year, month)[1] + 1):
+        d   = datetime.date(year, month, dn)
+        iso = d.isocalendar()
+        key = (iso[0], iso[1])
+        if key not in seen:
+            seen.add(key)
+            raw = load_json(os.path.join(KW_DIR, f"{iso[0]}-W{iso[1]:02d}.json"), {})
+            raw.pop("_extras", None)
+            result.update(raw)
+    return result
+
+def save_day_to_kw(iso_date, day_data):
+    """Einen einzelnen Tag in die passende KW-Datei speichern."""
+    d   = datetime.date.fromisoformat(iso_date)
+    iso = d.isocalendar()
+    path = os.path.join(KW_DIR, f"{iso[0]}-W{iso[1]:02d}.json")
+    existing = load_json(path, {})
+    existing[iso_date] = day_data
+    save_json(path, existing)
+
+def save_kw_data(kw, year, day_data, extras=None):
+    """Gesamte KW-Daten speichern."""
+    path = os.path.join(KW_DIR, f"{year}-W{kw:02d}.json")
+    data = dict(day_data)
+    if extras:
+        data["_extras"] = extras
+    save_json(path, data)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Salesforce Worker-Threads
+# ══════════════════════════════════════════════════════════════════════════════
+
+class SFSessionWorker(QThread):
+    """Verbindet per Session-ID (Cookie 'sid')."""
+    success = pyqtSignal(str, str, str, str)   # token, inst_url, user_id, name
+    error   = pyqtSignal(str)
+
+    def __init__(self, session_id, inst_url):
+        super().__init__()
+        self.session_id = session_id
+        self.inst_url   = inst_url.rstrip("/")
+
+    def run(self):
+        try:
+            if not self.session_id:
+                raise ValueError("Bitte Session ID eingeben.")
+            url = f"{self.inst_url}/services/oauth2/userinfo"
+            req = urllib.request.Request(url)
+            req.add_header("Authorization", f"Bearer {self.session_id}")
+            req.add_header("Accept", "application/json")
+            with urllib.request.urlopen(req, timeout=15) as r:
+                info = json.loads(r.read().decode())
+            uid  = info.get("user_id","")
+            name = info.get("preferred_username") or info.get("name") or info.get("email","Verbunden")
+            self.success.emit(self.session_id, self.inst_url, uid, name)
+        except Exception as e:
+            self.error.emit(str(e)[:400])
+
+
+class SFOAuthWorker(QThread):
+    """Verbindet per OAuth Username-Password-Flow."""
+    success = pyqtSignal(str, str, str, str)
+    error   = pyqtSignal(str)
+
+    def __init__(self, email, password, token, client_id, client_secret, login_url):
+        super().__init__()
+        self.email, self.password, self.token = email, password, token
+        self.client_id, self.client_secret    = client_id, client_secret
+        self.login_url = login_url.rstrip("/") if login_url else "https://login.salesforce.com"
+
+    def run(self):
+        try:
+            if not self.email or not self.password:
+                raise ValueError("E-Mail und Passwort sind erforderlich.")
+            if not self.client_id or not self.client_secret:
+                raise ValueError("Consumer Key und Consumer Secret sind erforderlich.")
+            post = urllib.parse.urlencode({
+                "grant_type":    "password",
+                "client_id":     self.client_id,
+                "client_secret": self.client_secret,
+                "username":      self.email,
+                "password":      self.password + self.token,
+            }).encode()
+            req = urllib.request.Request(f"{self.login_url}/services/oauth2/token", data=post, method="POST")
+            req.add_header("Content-Type","application/x-www-form-urlencoded")
+            req.add_header("Accept","application/json")
+            with urllib.request.urlopen(req, timeout=20) as r:
+                data = json.loads(r.read().decode())
+            access_token = data.get("access_token","")
+            instance_url = data.get("instance_url", self.login_url)
+            if not access_token:
+                raise ValueError(f"Kein Access Token: {data}")
+            # Benutzername aus ID-URL holen
+            id_url = data.get("id","")
+            name   = self.email
+            uid    = ""
+            if id_url:
+                idr = urllib.request.Request(id_url)
+                idr.add_header("Authorization", f"Bearer {access_token}")
+                idr.add_header("Accept","application/json")
+                with urllib.request.urlopen(idr, timeout=10) as ir:
+                    id_info = json.loads(ir.read().decode())
+                uid  = id_info.get("user_id","")
+                name = id_info.get("display_name") or id_info.get("preferred_username") or self.email
+            self.success.emit(access_token, instance_url, uid, name)
+        except Exception as e:
+            self.error.emit(str(e)[:400])
+
+
+class SFPingWorker(QThread):
+    """Prüft Salesforce-Session-Gültigkeit."""
+    alive   = pyqtSignal()
+    expired = pyqtSignal()
+    warning = pyqtSignal()
+
+    def __init__(self, token, inst_url):
+        super().__init__()
+        self.token, self.inst_url = token, inst_url
+
+    def run(self):
+        try:
+            req = urllib.request.Request(f"{self.inst_url}/services/data/")
+            req.add_header("Authorization", f"Bearer {self.token}")
+            req.add_header("Accept","application/json")
+            with urllib.request.urlopen(req, timeout=6) as r:
+                r.read()
+            self.alive.emit()
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                self.expired.emit()
+            else:
+                self.warning.emit()
+        except Exception:
+            self.warning.emit()
+
+
+class SFLoadWorker(QThread):
+    """Lädt Zeiteinträge aus Salesforce für einen Datumsbereich."""
+    success  = pyqtSignal(dict)   # {iso_date: day_data}
+    error    = pyqtSignal(str)
+    progress = pyqtSignal(str)
+
+    def __init__(self, token, inst_url, user_id, start_str, end_str, wohnort="Wohnort"):
+        super().__init__()
+        self.token, self.inst_url, self.user_id = token, inst_url, user_id
+        self.start_str, self.end_str, self.wohnort = start_str, end_str, wohnort
+
+    def _query(self, soql):
+        url = f"{self.inst_url}/services/data/{SF_API_VER}/query?q={urllib.parse.quote(soql)}"
+        req = urllib.request.Request(url)
+        req.add_header("Authorization", f"Bearer {self.token}")
+        req.add_header("Accept","application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read().decode()).get("records",[])
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8","replace")
+            try:
+                ed = json.loads(body)
+                msg = f"{ed[0].get('errorCode','')}: {ed[0].get('message','')}" if isinstance(ed,list) and ed else str(ed)[:300]
+            except Exception:
+                msg = body[:300]
+            raise RuntimeError(f"HTTP {e.code}: {msg}") from None
+
+    def run(self):
+        try:
+            self.progress.emit("🔍  Suche TimeSheets…")
+            ts = self._query(
+                f"SELECT Id FROM TimeSheet WHERE OwnerId='{self.user_id}' "
+                f"AND StartDate >= {self.start_str} AND EndDate <= {self.end_str}")
+            if not ts:
+                # KW-übergreifend versuchen
+                ts = self._query(
+                    f"SELECT Id FROM TimeSheet WHERE OwnerId='{self.user_id}' "
+                    f"AND (StartDate >= {self.start_str} OR EndDate >= {self.start_str}) "
+                    f"AND StartDate <= {self.end_str}")
+            if not ts:
+                self.success.emit({})
+                return
+
+            ts_ids = "','".join(r["Id"] for r in ts)
+            self.progress.emit(f"📋  Lade {len(ts)} TimeSheet(s)…")
+            te = self._query(
+                f"SELECT Id,StartTime,EndTime,Type,WorkOrderId,"
+                f"formulaAccount__c,OverheadsType__c "
+                f"FROM TimeSheetEntry WHERE TimeSheetId IN ('{ts_ids}')")
+
+            wo_ids = list({r["WorkOrderId"] for r in te if r.get("WorkOrderId")})
+            wo_map = {}
+            if wo_ids:
+                self.progress.emit(f"🏢  Lade {len(wo_ids)} WorkOrder(s)…")
+                wo_str  = "','".join(wo_ids)
+                wo_recs = self._query(
+                    f"SELECT Id,WorkOrderNumber,Street,City FROM WorkOrder WHERE Id IN ('{wo_str}')")
+                wo_map  = {r["Id"]: r for r in wo_recs}
+
+            # UTC → Lokale Zeit
+            import time as _t
+            utc_off = datetime.timedelta(seconds=-_t.timezone)
+            if _t.daylight and _t.localtime().tm_isdst:
+                utc_off = datetime.timedelta(seconds=-_t.altzone)
+
+            self.progress.emit("⚙️  Verarbeite Einträge…")
+            parsed = []
+            for e in te:
+                raw = e.get("StartTime","")
+                if not raw:
+                    continue
+                try:
+                    dt_s = datetime.datetime.fromisoformat(raw[:19]) + utc_off
+                except Exception:
+                    continue
+                try:
+                    dt_e = datetime.datetime.fromisoformat(e["EndTime"][:19]) + utc_off
+                except Exception:
+                    dt_e = dt_s
+                ds = dt_s.date().isoformat()
+                if ds < self.start_str or ds > self.end_str:
+                    continue
+                wo  = wo_map.get(e.get("WorkOrderId",""), {})
+                parsed.append({
+                    "date": ds, "dt_s": dt_s, "dt_e": dt_e,
+                    "type": e.get("Type","Work"),
+                    "wo_id": e.get("WorkOrderId","") or "",
+                    "auftr_nr":  wo.get("WorkOrderNumber",""),
+                    "kunde_name": e.get("formulaAccount__c") or "",
+                    "standort":  wo.get("City") or wo.get("Street",""),
+                    "overhead":  e.get("OverheadsType__c") or "",
+                })
+            parsed.sort(key=lambda x: (x["date"], x["dt_s"]))
+
+            per_day = defaultdict(list)
+            for p in parsed:
+                per_day[p["date"]].append(p)
+
+            new_data = {}
+            for ds, tes in sorted(per_day.items()):
+                pauses   = [t for t in tes if t["type"] == "Break"]
+                work     = [t for t in tes if t["type"] != "Break"]
+                pause_m  = sum(max(0,int((t["dt_e"]-t["dt_s"]).seconds/60)) for t in pauses)
+                if not work:
+                    continue
+                day_s = min(t["dt_s"] for t in tes)
+                day_e = max(t["dt_e"] for t in tes)
+
+                groups = defaultdict(list)
+                anon = 0
+                for t in work:
+                    k = t["wo_id"] if t["wo_id"] else f"_anon_{anon}"
+                    if not t["wo_id"]: anon += 1
+                    groups[k].append(t)
+
+                entries = []
+                for grp in sorted(groups.values(), key=lambda g: min(x["dt_s"] for x in g)):
+                    gs = min(x["dt_s"] for x in grp)
+                    ge = max(x["dt_e"] for x in grp)
+                    r  = grp[0]
+                    entries.append({
+                        "start": gs.strftime("%H:%M"), "end": ge.strftime("%H:%M"),
+                        "pause":"0", "start_punkt":self.wohnort, "end_punkt":self.wohnort,
+                        "dienst":"Außendienst" if r["wo_id"] else "Innendienst",
+                        "auftr_nr":r["auftr_nr"], "kunde_name":r["kunde_name"],
+                        "standort":r["standort"], "allg_code":r["overhead"], "land":"DE",
+                    })
+                if entries:
+                    entries[0]["pause"] = str(pause_m)
+
+                new_data[ds] = {
+                    "status":"Arbeit",
+                    "start":day_s.strftime("%H:%M"), "end":day_e.strftime("%H:%M"),
+                    "pause":str(pause_m),
+                    "uebernacht":"nein","fruehstueck":"nein","mittag":"nein","abend":"nein",
+                    "entries": entries,
+                }
+            self.success.emit(new_data)
+        except Exception as e:
+            self.error.emit(str(e)[:500])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Kleine Hilfs-Widgets
+# ══════════════════════════════════════════════════════════════════════════════
+
+def btn(text, cb=None, tooltip="", color=None, small=False):
+    """Schnell-Ersteller für Buttons mit optionaler Farbe und Tooltip."""
+    b = QPushButton(text)
+    if cb:
+        b.clicked.connect(cb)
+    if tooltip:
+        b.setToolTip(tooltip)
+    if color:
+        b.setStyleSheet(f"""
+            QPushButton {{ background:{color}; border:1px solid {color}; color:{C["text"]}; border-radius:7px; padding:6px 14px; }}
+            QPushButton:hover {{ opacity:0.85; }}
+        """)
+    if small:
+        b.setFixedHeight(26)
+    return b
+
+def lbl(text, color=None, bold=False, size=None):
+    """Label-Schnell-Ersteller."""
+    l = QLabel(text)
+    style = ""
+    if color: style += f"color:{color};"
+    if bold:  style += "font-weight:bold;"
+    if size:  style += f"font-size:{size}pt;"
+    if style: l.setStyleSheet(style)
+    return l
+
+def sep_line():
+    """Horizontale Trennlinie."""
+    f = QFrame()
+    f.setFrameShape(QFrame.Shape.HLine)
+    f.setStyleSheet(f"color:{C['border']}; background:{C['border']}; max-height:1px;")
+    return f
+
+def make_entry(placeholder="", width=None, pw=False):
+    """QLineEdit-Ersteller."""
+    e = QLineEdit()
+    if placeholder: e.setPlaceholderText(placeholder)
+    if width:       e.setFixedWidth(width)
+    if pw:          e.setEchoMode(QLineEdit.EchoMode.Password)
+    return e
+
+def make_combo(items, width=None, current=None):
+    """QComboBox-Ersteller."""
+    c = QComboBox()
+    c.addItems(items)
+    if width:   c.setFixedWidth(width)
+    if current: c.setCurrentText(current)
+    return c
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Sidebar
+# ══════════════════════════════════════════════════════════════════════════════
+
+class Sidebar(QFrame):
+    """
+    Linke Navigationsleiste mit 5 Menüpunkten und SF-Statusanzeige.
+    Emittiert 'page_changed' mit dem Seitenindex bei Klick.
+    """
+    page_changed = pyqtSignal(int)
+
+    NAV = [
+        (0, "🏠", "Start"),
+        (1, "⏱", "Arbeitszeiten"),
+        (2, "✈", "Reisekosten"),
+        (3, "ℹ", "Info"),
+        (4, "⚙", "Einstellungen"),
+    ]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedWidth(200)
+        self.setObjectName("sidebar")
+        self.setStyleSheet(f"""
+            QFrame#sidebar {{
+                background:{C["header"]};
+                border-right:1px solid {C["border"]};
+            }}
+        """)
+        self._btns = {}
+        self._build()
+
+    def _build(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        # Logo-Bereich
+        logo_frame = QFrame()
+        logo_frame.setStyleSheet(f"background:{C['surface']}; border-bottom:1px solid {C['border']};")
+        logo_lay = QVBoxLayout(logo_frame)
+        logo_lay.setContentsMargins(16, 16, 16, 16)
+        logo_lay.setSpacing(2)
+        logo_lay.addWidget(lbl("⏱ TimingTool", C["accent"], bold=True, size=13))
+        logo_lay.addWidget(lbl(f"v{APP_VERSION}", C["dimtext"], size=8))
+        lay.addWidget(logo_frame)
+
+        # Navigations-Buttons
+        nav_frame = QFrame()
+        nav_frame.setStyleSheet(f"background:{C['header']};")
+        nav_lay = QVBoxLayout(nav_frame)
+        nav_lay.setContentsMargins(8, 12, 8, 0)
+        nav_lay.setSpacing(2)
+
+        for idx, icon, name in self.NAV:
+            b = QPushButton(f"  {icon}  {name}")
+            b.setCheckable(True)
+            b.setFixedHeight(40)
+            b.setStyleSheet(self._nav_style(False))
+            b.clicked.connect(lambda checked, i=idx: self._select(i))
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            nav_lay.addWidget(b)
+            self._btns[idx] = b
+
+        nav_lay.addStretch()
+        lay.addWidget(nav_frame, 1)
+
+        # SF-Statusanzeige unten
+        sf_frame = QFrame()
+        sf_frame.setStyleSheet(f"background:{C['surface']}; border-top:1px solid {C['border']};")
+        sf_lay = QVBoxLayout(sf_frame)
+        sf_lay.setContentsMargins(12, 10, 12, 10)
+        sf_lay.setSpacing(4)
+
+        sf_top = QHBoxLayout()
+        self._sf_dot = lbl("●", C["red"], size=12)
+        sf_top.addWidget(self._sf_dot)
+        sf_top.addWidget(lbl("Salesforce", C["subtext"], size=9))
+        sf_top.addStretch()
+        sf_lay.addLayout(sf_top)
+
+        self._sf_name = lbl("Nicht verbunden", C["dimtext"], size=8)
+        self._sf_name.setWordWrap(True)
+        sf_lay.addWidget(self._sf_name)
+
+        lay.addWidget(sf_frame)
+
+        # Start-Seite vorauswählen
+        self._select(0)
+
+    def _nav_style(self, active):
+        if active:
+            return f"""
+                QPushButton {{
+                    background:{C['surface2']}; border:none; border-left:3px solid {C['accent']};
+                    border-radius:7px; color:{C['accent']}; text-align:left;
+                    padding-left:12px; font-weight:bold;
+                }}
+            """
+        return f"""
+            QPushButton {{
+                background:transparent; border:none; border-left:3px solid transparent;
+                border-radius:7px; color:{C['subtext']}; text-align:left; padding-left:12px;
+            }}
+            QPushButton:hover {{ background:{C['overlay']}; color:{C['text']}; }}
+        """
+
+    def _select(self, idx):
+        for i, b in self._btns.items():
+            b.setStyleSheet(self._nav_style(i == idx))
+            b.setChecked(i == idx)
+        self.page_changed.emit(idx)
+
+    def set_sf_status(self, connected, name=""):
+        """SF-Verbindungsstatus in der Sidebar aktualisieren."""
+        if connected == "ok":
+            self._sf_dot.setStyleSheet(f"color:{C['green']}; font-size:12pt;")
+            self._sf_name.setText(name or "Verbunden")
+            self._sf_name.setStyleSheet(f"color:{C['green']}; font-size:8pt;")
+        elif connected == "warn":
+            self._sf_dot.setStyleSheet(f"color:{C['yellow']}; font-size:12pt;")
+            self._sf_name.setText("Verbindungsproblem")
+            self._sf_name.setStyleSheet(f"color:{C['yellow']}; font-size:8pt;")
+        else:
+            self._sf_dot.setStyleSheet(f"color:{C['red']}; font-size:12pt;")
+            self._sf_name.setText(name or "Nicht verbunden")
+            self._sf_name.setStyleSheet(f"color:{C['dimtext']}; font-size:8pt;")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Detail-Panel (wird in Arbeitszeiten und Reisekosten wiederverwendet)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class DetailPanel(QFrame):
+    """
+    Editier-Panel für Tageseinträge.
+    Wird am unteren Rand der Arbeitszeiten- / Reisekosten-Seite angezeigt.
+    Signalisiert 'saved' wenn der Nutzer auf 'Übernehmen' klickt.
+    """
+    saved = pyqtSignal(str, dict)   # iso_date, aktualisierte day_data
+
+    def __init__(self, show_meals=False, parent=None):
+        super().__init__(parent)
+        self._show_meals  = show_meals
+        self._iso_date    = None
+        self._day_data    = {}
+        self._entry_idx   = 0
+        self._vorlagen    = load_json(KUNDEN_FILE, {})
+        self.setStyleSheet(f"background:{C['surface']}; border-top:2px solid {C['accent']};")
+        self.setMinimumHeight(210)
+        self._build()
+
+    def _build(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(10, 8, 10, 8)
+        root.setSpacing(6)
+
+        # ── Kopfzeile ──────────────────────────────────────────────────────────
+        top = QHBoxLayout()
+        top.setSpacing(6)
+        top.addWidget(lbl("📋  Auftrags-Details", C["accent"], bold=True))
+        top.addWidget(lbl("(klicke einen Tag für Details)", C["dimtext"], size=8))
+
+        self._nav_lbl = lbl("Eintrag 1 / 1", C["subtext"], size=9)
+        top.addWidget(self._nav_lbl)
+
+        for t, cb, tip, col in [
+            ("◀", self._prev,   "Vorheriger Eintrag",          None),
+            ("▶", self._next,   "Nächster Eintrag",             None),
+            ("＋ Neu", self._new,"Neuen Eintrag hinzufügen",  C["green"]),
+            ("🗑",  self._del,   "Eintrag löschen",             C["red"]),
+        ]:
+            b = btn(t, cb, tip)
+            b.setFixedHeight(26)
+            if col:
+                b.setStyleSheet(f"QPushButton{{background:transparent;border:none;color:{col};font-size:10pt;}} QPushButton:hover{{color:{C['text']};}}")
+            else:
+                b.setStyleSheet(f"QPushButton{{background:transparent;border:none;color:{C['subtext']};}} QPushButton:hover{{color:{C['text']};}}")
+            top.addWidget(b)
+
+        top.addStretch()
+
+        # Kundenvorlagen
+        top.addWidget(lbl("Vorlage:", C["subtext"], size=9))
+        self._vorl_cb = make_combo([""] + list(self._vorlagen.keys()), width=160)
+        self._vorl_cb.setPlaceholderText("Vorlage wählen…")
+        self._vorl_cb.currentTextChanged.connect(self._load_vorlage)
+        top.addWidget(self._vorl_cb)
+        top.addWidget(btn("💾", self._save_vorlage, "Aktuelle Felder als Vorlage speichern"))
+        root.addLayout(top)
+
+        # ── Felder-Bereich ─────────────────────────────────────────────────────
+        fields = QHBoxLayout()
+        fields.setSpacing(10)
+
+        # Gruppe 1: Zeiten & Art
+        g1 = QGroupBox("⏱  Zeiten & Dienstart")
+        fl1 = QFormLayout(g1)
+        fl1.setSpacing(4)
+        self._f_start  = make_entry("08:00", 70)
+        self._f_end    = make_entry("17:00", 70)
+        self._f_pause  = make_entry("30",    50)
+        self._f_dienst = make_combo(["Außendienst","Innendienst","Ausland"], 130)
+        self._f_dienst.currentTextChanged.connect(self._dienst_toggle)
+        self._f_land   = make_entry("DE", 45)
+        fl1.addRow("Start:",         self._f_start)
+        fl1.addRow("Ende:",          self._f_end)
+        fl1.addRow("Pause (min):",   self._f_pause)
+        fl1.addRow("Dienstart:",     self._f_dienst)
+        fl1.addRow("Land:",          self._f_land)
+        fields.addWidget(g1)
+
+        # Gruppe 2a: Auftrag/Kunde (Außendienst)
+        self._g_ad = QGroupBox("🏢  Auftrag / Kunde")
+        fl2 = QFormLayout(self._g_ad)
+        fl2.setSpacing(4)
+        self._f_auftr    = make_entry("Auftragsnummer", 120)
+        self._f_kunde    = make_entry("Kundenname",     200)
+        self._f_standort = make_entry("Standort / Ort", 160)
+        self._f_startpkt = make_combo(["Wohnort","Hotel"], 100)
+        self._f_endpkt   = make_combo(["Wohnort","Hotel"], 100)
+        fl2.addRow("Auftrags-Nr:",  self._f_auftr)
+        fl2.addRow("Kundenname:",   self._f_kunde)
+        fl2.addRow("Standort:",     self._f_standort)
+        fl2.addRow("Startpunkt:",   self._f_startpkt)
+        fl2.addRow("Endpunkt:",     self._f_endpkt)
+        fields.addWidget(self._g_ad)
+
+        # Gruppe 2b: Allgemeinkosten (Innendienst)
+        self._g_id = QGroupBox("📋  Allgemeinkosten")
+        fl3 = QFormLayout(self._g_id)
+        fl3.setSpacing(4)
+        self._f_allg = QComboBox()
+        for code, name in ALLGEMEIN_CODES.items():
+            self._f_allg.addItem(f"{code}  –  {name}", code)
+        self._f_allg.setMinimumWidth(280)
+        fl3.addRow("Code:", self._f_allg)
+        self._g_id.hide()
+        fields.addWidget(self._g_id)
+
+        # Gruppe 3: Reisekosten (optional, nur Reisekosten-Seite)
+        self._g_rk = QGroupBox("🍽  Mahlzeiten / Übernachtung")
+        fl4 = QFormLayout(self._g_rk)
+        fl4.setSpacing(4)
+        self._f_uebernacht  = make_combo(["nein","ja"], 70)
+        self._f_fruehstueck = make_combo(["nein","ja"], 70)
+        self._f_mittag      = make_combo(["nein","ja"], 70)
+        self._f_abend       = make_combo(["nein","ja"], 70)
+        fl4.addRow("Übernachtung:", self._f_uebernacht)
+        fl4.addRow("Frühstück:",    self._f_fruehstueck)
+        fl4.addRow("Mittagessen:",  self._f_mittag)
+        fl4.addRow("Abendessen:",   self._f_abend)
+        if not self._show_meals:
+            self._g_rk.hide()
+        fields.addWidget(self._g_rk)
+
+        fields.addStretch()
+        root.addLayout(fields)
+
+        # ── Buttons ────────────────────────────────────────────────────────────
+        bot = QHBoxLayout()
+        b_kunde = btn("💾  Kunde speichern", self._quick_save_kunde,
+                      "Kundenname + Standort als Vorlage speichern")
+        b_kunde.setStyleSheet(f"QPushButton{{background:{C['surface2']};border:1px solid {C['border']};border-radius:7px;color:{C['green']};padding:5px 12px;}} QPushButton:hover{{background:{C['overlay']};border-color:{C['green']};}}")
+        bot.addWidget(b_kunde)
+        bot.addStretch()
+        b_apply = btn("✓  Übernehmen", self._apply,
+                      "Änderungen in den Tageseintrag übernehmen (dann noch KW speichern!)")
+        b_apply.setStyleSheet(f"QPushButton{{background:#2a6644;border:1px solid #337a50;border-radius:7px;color:#d4f5e4;padding:5px 16px;font-weight:bold;}} QPushButton:hover{{background:#337a50;}}")
+        bot.addWidget(b_apply)
+        root.addLayout(bot)
+
+    # ── Laden / Speichern ──────────────────────────────────────────────────────
+
+    def load_day(self, iso_date, day_data, wohnort="Wohnort"):
+        """Tag in das Panel laden."""
+        self._iso_date  = iso_date
+        self._day_data  = day_data
+        self._wohnort   = wohnort
+        self._entry_idx = 0
+        self._load_entry()
+
+    def _load_entry(self):
+        if not self._iso_date:
+            return
+        entries = self._day_data.get("entries", [{}])
+        if not entries:
+            entries = [{}]
+        idx = max(0, min(self._entry_idx, len(entries)-1))
+        self._entry_idx = idx
+        e = entries[idx]
+        wohnort = getattr(self, "_wohnort", "Wohnort")
+
+        self._f_start.setText(e.get("start", self._day_data.get("start","08:00")))
+        self._f_end.setText(  e.get("end",   self._day_data.get("end",  "17:00")))
+        self._f_pause.setText(e.get("pause", self._day_data.get("pause","30")))
+        self._f_dienst.setCurrentText(e.get("dienst", "Außendienst"))
+        self._f_land.setText(e.get("land","DE"))
+        self._f_auftr.setText(e.get("auftr_nr",""))
+        self._f_kunde.setText(e.get("kunde_name",""))
+        self._f_standort.setText(e.get("standort",""))
+        self._f_startpkt.setCurrentText(e.get("start_punkt", wohnort))
+        self._f_endpkt.setCurrentText(  e.get("end_punkt",   wohnort))
+        # Allgemeinkosten-Code setzen
+        code = e.get("allg_code","")
+        for i in range(self._f_allg.count()):
+            if self._f_allg.itemData(i) == code:
+                self._f_allg.setCurrentIndex(i)
+                break
+        # Mahlzeiten (auf Tag-Ebene)
+        self._f_uebernacht.setCurrentText( self._day_data.get("uebernacht","nein"))
+        self._f_fruehstueck.setCurrentText(self._day_data.get("fruehstueck","nein"))
+        self._f_mittag.setCurrentText(     self._day_data.get("mittag","nein"))
+        self._f_abend.setCurrentText(      self._day_data.get("abend","nein"))
+
+        total = len(entries)
+        self._nav_lbl.setText(f"Eintrag  {idx+1} / {total}")
+        self._nav_lbl.setStyleSheet(
+            f"color:{C['accent']}; font-size:9pt;" if total > 1
+            else f"color:{C['subtext']}; font-size:9pt;")
+        self._dienst_toggle(self._f_dienst.currentText())
+
+    def _dienst_toggle(self, dienst):
+        """Zeigt Kunden-Felder oder Allgemeinkosten je nach Dienstart."""
+        is_id = dienst in ("Innendienst","Homeoffice","Home Office")
+        self._g_ad.setVisible(not is_id)
+        self._g_id.setVisible(is_id)
+
+    def _apply(self):
+        """Aktuelle Felder in day_data übernehmen und Signal senden."""
+        if not self._iso_date:
+            return
+        entries = self._day_data.setdefault("entries", [{}])
+        if not entries:
+            entries.append({})
+        idx = max(0, min(self._entry_idx, len(entries)-1))
+        wohnort = getattr(self, "_wohnort","Wohnort")
+        entries[idx] = {
+            "start":       self._f_start.text(),
+            "end":         self._f_end.text(),
+            "pause":       self._f_pause.text(),
+            "dienst":      self._f_dienst.currentText(),
+            "land":        self._f_land.text() or "DE",
+            "auftr_nr":    self._f_auftr.text(),
+            "kunde_name":  self._f_kunde.text(),
+            "standort":    self._f_standort.text(),
+            "start_punkt": self._f_startpkt.currentText() or wohnort,
+            "end_punkt":   self._f_endpkt.currentText()   or wohnort,
+            "allg_code":   self._f_allg.currentData() or "",
+        }
+        # Tag-Ebene synchronisieren
+        if entries:
+            self._day_data["start"] = entries[0].get("start","")
+            self._day_data["end"]   = entries[-1].get("end","")
+            self._day_data["pause"] = entries[0].get("pause","")
+        self._day_data["uebernacht"]  = self._f_uebernacht.currentText()
+        self._day_data["fruehstueck"] = self._f_fruehstueck.currentText()
+        self._day_data["mittag"]      = self._f_mittag.currentText()
+        self._day_data["abend"]       = self._f_abend.currentText()
+        self.saved.emit(self._iso_date, self._day_data)
+
+    # ── Eintrag-Navigation ─────────────────────────────────────────────────────
+
+    def _prev(self):
+        if self._iso_date:
+            self._apply_silent()
+            self._entry_idx -= 1
+            self._load_entry()
+
+    def _next(self):
+        if self._iso_date:
+            self._apply_silent()
+            self._entry_idx += 1
+            self._load_entry()
+
+    def _new(self):
+        if not self._iso_date:
+            return
+        self._apply_silent()
+        entries = self._day_data.setdefault("entries",[{}])
+        entries.append({})
+        self._entry_idx = len(entries) - 1
+        self._load_entry()
+
+    def _del(self):
+        if not self._iso_date:
+            return
+        entries = self._day_data.get("entries",[])
+        if len(entries) <= 1:
+            QMessageBox.information(self,"Hinweis","Mindestens ein Eintrag muss verbleiben.")
+            return
+        entries.pop(self._entry_idx)
+        self._entry_idx = max(0, self._entry_idx - 1)
+        self._load_entry()
+
+    def _apply_silent(self):
+        """Übernimmt ohne Signal (für Navigation zwischen Einträgen)."""
+        if not self._iso_date:
+            return
+        entries = self._day_data.setdefault("entries",[{}])
+        idx = max(0, min(self._entry_idx, len(entries)-1))
+        wohnort = getattr(self,"_wohnort","Wohnort")
+        entries[idx] = {
+            "start":self._f_start.text(),"end":self._f_end.text(),
+            "pause":self._f_pause.text(),"dienst":self._f_dienst.currentText(),
+            "land":self._f_land.text() or "DE","auftr_nr":self._f_auftr.text(),
+            "kunde_name":self._f_kunde.text(),"standort":self._f_standort.text(),
+            "start_punkt":self._f_startpkt.currentText() or wohnort,
+            "end_punkt":  self._f_endpkt.currentText()   or wohnort,
+            "allg_code":  self._f_allg.currentData() or "",
+        }
+
+    # ── Vorlagen ───────────────────────────────────────────────────────────────
+
+    def _load_vorlage(self, name):
+        if not name:
+            return
+        v = self._vorlagen.get(name, {})
+        if not v:
+            return
+        self._f_auftr.setText(   v.get("auftr_nr",""))
+        self._f_kunde.setText(   v.get("kunde_name",""))
+        self._f_standort.setText(v.get("standort",""))
+        self._f_dienst.setCurrentText(v.get("dienst","Außendienst"))
+        self._f_land.setText(    v.get("land","DE"))
+        self._f_startpkt.setCurrentText(v.get("start_punkt","Wohnort"))
+        self._f_endpkt.setCurrentText(  v.get("end_punkt","Wohnort"))
+        code = v.get("allg_code","")
+        for i in range(self._f_allg.count()):
+            if self._f_allg.itemData(i) == code:
+                self._f_allg.setCurrentIndex(i); break
+
+    def _save_vorlage(self):
+        name, ok = QInputDialog.getText(self,"Vorlage speichern",
+                                        "Name für diese Vorlage:")
+        if not ok or not name.strip():
+            return
+        self._vorlagen[name.strip()] = {
+            "auftr_nr":    self._f_auftr.text(),
+            "kunde_name":  self._f_kunde.text(),
+            "standort":    self._f_standort.text(),
+            "dienst":      self._f_dienst.currentText(),
+            "land":        self._f_land.text(),
+            "allg_code":   self._f_allg.currentData() or "",
+            "start_punkt": self._f_startpkt.currentText(),
+            "end_punkt":   self._f_endpkt.currentText(),
+        }
+        save_json(KUNDEN_FILE, self._vorlagen)
+        self._vorl_cb.clear()
+        self._vorl_cb.addItems([""] + list(self._vorlagen.keys()))
+        self._vorl_cb.setCurrentText(name.strip())
+
+    def _quick_save_kunde(self):
+        kunde   = self._f_kunde.text().strip()
+        standort = self._f_standort.text().strip()
+        default = f"{kunde} – {standort}" if kunde and standort else kunde or standort
+        if not default:
+            QMessageBox.information(self,"Hinweis","Bitte zuerst Kundenname oder Standort eingeben.")
+            return
+        name, ok = QInputDialog.getText(self,"Kunde speichern",
+                                        "Name für diesen Kunden:",
+                                        text=default)
+        if not ok or not name.strip():
+            return
+        self._vorlagen[name.strip()] = {
+            "auftr_nr":    self._f_auftr.text(),
+            "kunde_name":  kunde,
+            "standort":    standort,
+            "dienst":      self._f_dienst.currentText(),
+            "land":        self._f_land.text(),
+            "allg_code":   self._f_allg.currentData() or "",
+            "start_punkt": self._f_startpkt.currentText(),
+            "end_punkt":   self._f_endpkt.currentText(),
+        }
+        save_json(KUNDEN_FILE, self._vorlagen)
+        self._vorl_cb.clear()
+        self._vorl_cb.addItems([""] + list(self._vorlagen.keys()))
+        QMessageBox.information(self,"Gespeichert",f"Kunde gespeichert als: {name.strip()}")
+
+    def _del_vorlage(self):
+        name = self._vorl_cb.currentText()
+        if not name:
+            return
+        self._vorlagen.pop(name, None)
+        save_json(KUNDEN_FILE, self._vorlagen)
+        self._vorl_cb.clear()
+        self._vorl_cb.addItems([""] + list(self._vorlagen.keys()))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Tag-Zeile (DayRow) — für Monats- und Wochenansicht
+# ══════════════════════════════════════════════════════════════════════════════
+
+STATUS_BG = {
+    "Krank":     C["krank_bg"], "Urlaub":    C["urlaub_bg"],
+    "Kurzarbeit":C["glz_bg"],   "GLZ":       C["glz_bg"],
+    "Feiertag":  C["urlaub_bg"],"Sonstiges": C["surface2"],
+    "Frei":      C["we_bg"],
+}
+STATUS_ICON = {
+    "Arbeit":"💼","Krank":"🤒","Urlaub":"🏖","Kurzarbeit":"📉",
+    "GLZ":"⏸","Feiertag":"🎉","Sonstiges":"📌","Frei":"🏠",
+}
+
+class DayRow(QFrame):
+    """
+    Eine kompakte Tageszeile in der Übersichtstabelle.
+    Inline-editierbar: Status, Start, Ende, Pause.
+    Klick → Auswahl und Laden ins Detail-Panel.
+    """
+    clicked = pyqtSignal(str)  # iso_date
+
+    def __init__(self, date, day_data, alt=False, parent=None):
+        super().__init__(parent)
+        self.iso = date.isoformat()
+        self.date = date
+        self._d   = day_data     # Referenz auf globales Dict
+        self._alt = alt
+        self._sel = False
+        self._is_we = date.weekday() >= 5
+        self._build()
+        self._apply_bg()
+
+    def _build(self):
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(8, 3, 8, 3)
+        lay.setSpacing(6)
+        is_we = self._is_we
+        default_st = "Frei" if is_we else "Arbeit"
+
+        # Wochentag-Label
+        wt = lbl(DAY_NAMES[self.date.weekday()])
+        wt.setFixedWidth(26)
+        wt.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        wt.setStyleSheet(
+            f"font-weight:{'bold' if not is_we else 'normal'};"
+            f"color:{C['subtext'] if is_we else C['text']};")
+        lay.addWidget(wt)
+
+        # Datum
+        dl = lbl(self.date.strftime("%d.%m.%Y"))
+        dl.setFixedWidth(76)
+        dl.setStyleSheet(f"color:{C['subtext'] if is_we else C['text']};")
+        lay.addWidget(dl)
+
+        # Status-ComboBox
+        self._scb = make_combo(STATUS_OPTIONS, 110,
+                               self._d.get("status", default_st))
+        self._scb.currentTextChanged.connect(self._on_status)
+        lay.addWidget(self._scb)
+
+        # Zeit-Felder
+        for txt, key, w in [("Start","start",62),("Ende","end",62),("P","pause",44)]:
+            lay.addWidget(lbl(txt, C["dimtext"], size=8))
+            f = QLineEdit(self._d.get(key,""))
+            f.setFixedWidth(w)
+            f.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            f.setPlaceholderText("--:--" if key != "pause" else "0")
+            f.textChanged.connect(lambda v, k=key: self._set(k, v))
+            setattr(self, f"_f_{key}", f)
+            lay.addWidget(f)
+
+        # Stunden-Anzeige
+        self._hlbl = lbl(self._hours_txt(), C["accent"])
+        self._hlbl.setFixedWidth(46)
+        self._hlbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._hlbl.setStyleSheet(f"color:{C['accent']};font-weight:bold;font-size:9pt;")
+        lay.addWidget(self._hlbl)
+
+        # Eintrags-Zusammenfassung
+        self._slbl = lbl(self._summary(), C["subtext"])
+        self._slbl.setStyleSheet(f"color:{C['subtext']};font-size:8pt;")
+        self._slbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        lay.addWidget(self._slbl)
+
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def _on_status(self, status):
+        self._d["status"] = status
+        if status not in ("Arbeit",):
+            for f in [self._f_start, self._f_end, self._f_pause]:
+                f.setText("")
+        self._hlbl.setText(self._hours_txt())
+        self._apply_bg()
+
+    def _set(self, key, val):
+        self._d[key] = val
+        self._hlbl.setText(self._hours_txt())
+
+    def _hours_txt(self):
+        STATUS_L = {"Krank":"🤒","Urlaub":"🏖","Kurzarbeit":"KA",
+                    "GLZ":"−8h","Feiertag":"🎉","Sonstiges":"●","Frei":"—"}
+        s = self._d.get("status","")
+        if s in STATUS_L: return STATUS_L[s]
+        h = calc_day_hours(self._d)
+        return f"{h:.2f}h" if h > 0 else "—"
+
+    def _summary(self):
+        entries = self._d.get("entries",[])
+        if not entries: return ""
+        parts = []
+        for e in entries[:4]:
+            d = e.get("dienst","Außendienst")
+            if d in ("Innendienst","Homeoffice","Home Office"):
+                c = e.get("allg_code","")
+                parts.append(ALLGEMEIN_CODES.get(c,c) if c else "ID")
+            else:
+                k = e.get("kunde_name","") or e.get("auftr_nr","")
+                if k: parts.append(k)
+        if len(entries) > 4: parts.append(f"+{len(entries)-4}")
+        return "  •  ".join(parts)
+
+    def _apply_bg(self):
+        status = self._d.get("status","")
+        if self._sel:
+            bg = C["overlay"]
+        elif self._is_we:
+            bg = C["we_bg"]
+        elif status in STATUS_BG:
+            bg = STATUS_BG[status]
+        elif self._alt:
+            bg = C["surface2"]
+        else:
+            bg = C["surface"]
+        bc = C["accent"] if self._sel else C["border"]
+        self.setStyleSheet(f"QFrame{{background:{bg};border-bottom:1px solid {bc};}}")
+
+    def select(self, on):
+        self._sel = on
+        self._apply_bg()
+
+    def refresh(self):
+        """Aus self._d neu laden (nach SF-Import)."""
+        is_we = self._is_we
+        self._scb.blockSignals(True)
+        self._scb.setCurrentText(self._d.get("status","Frei" if is_we else "Arbeit"))
+        self._scb.blockSignals(False)
+        self._f_start.setText(self._d.get("start",""))
+        self._f_end.setText(  self._d.get("end",""))
+        self._f_pause.setText(self._d.get("pause",""))
+        self._hlbl.setText(self._hours_txt())
+        self._slbl.setText(self._summary())
+        self._apply_bg()
+
+    def mousePressEvent(self, ev):
+        self.clicked.emit(self.iso)
+        super().mousePressEvent(ev)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Seite 0: Start — Salesforce-Verbindung
+# ══════════════════════════════════════════════════════════════════════════════
+
+class StartPage(QWidget):
+    """
+    Startseite mit Salesforce-Verbindungsoptionen.
+    Methode 1: Session ID (Cookie 'sid') — einfach, kurzlebig.
+    Methode 2: OAuth Username/Password — dauerhaft, benötigt Connected App.
+    """
+    sf_connected    = pyqtSignal(str, str, str, str)  # token, inst_url, user_id, name
+    sf_disconnected = pyqtSignal()
+
+    def __init__(self, profile, parent=None):
+        super().__init__(parent)
+        self._profile = profile
+        self._build()
+
+    def _build(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(30, 24, 30, 24)
+        root.setSpacing(16)
+
+        # Titel
+        root.addWidget(lbl("☁  Salesforce Verbindung", C["accent"], bold=True, size=14))
+        root.addWidget(lbl("Verbinde das Tool mit Salesforce um Daten zu laden.",
+                           C["subtext"], size=10))
+        root.addWidget(sep_line())
+
+        # Status-Anzeige
+        status_frame = QFrame()
+        status_frame.setStyleSheet(f"background:{C['surface']}; border-radius:8px; padding:4px;")
+        sl = QHBoxLayout(status_frame)
+        sl.setContentsMargins(14,10,14,10)
+        self._status_dot = lbl("●", C["red"], size=14)
+        self._status_txt = lbl("Nicht verbunden", C["subtext"])
+        sl.addWidget(self._status_dot)
+        sl.addWidget(self._status_txt)
+        sl.addStretch()
+        disconnect_btn = btn("Trennen", self._disconnect, "Verbindung trennen")
+        disconnect_btn.setStyleSheet(f"QPushButton{{background:transparent;border:none;color:{C['red']};}} QPushButton:hover{{color:{C['text']};}}")
+        sl.addWidget(disconnect_btn)
+        root.addWidget(status_frame)
+
+        # Tab: Verbindungsmethoden
+        tabs = QTabWidget()
+        root.addWidget(tabs)
+
+        # ── Tab 1: Session ID ──────────────────────────────────────────────────
+        t1 = QWidget()
+        tl1 = QVBoxLayout(t1)
+        tl1.setContentsMargins(20, 16, 20, 16)
+        tl1.setSpacing(12)
+
+        info1 = QFrame()
+        info1.setStyleSheet(f"background:{C['surface2']}; border-radius:7px;")
+        il = QVBoxLayout(info1)
+        il.setContentsMargins(14,12,14,12)
+        il.setSpacing(4)
+        il.addWidget(lbl("📘  Anleitung — Session ID ermitteln", C["accent"], bold=True))
+        for step in [
+            "1.  VPN verbinden (GlobalProtect)",
+            "2.  Unten auf »Salesforce öffnen« klicken und einloggen (SSO)",
+            "3.  F12  →  Application  →  Cookies",
+            "    →  koenig-bauer.lightning.force.com",
+            "4.  Zeile  sid  anklicken  →  Wert kopieren",
+            "5.  Wert unten einfügen  →  Verbinden klicken",
+            "ℹ  Die Session läuft nach ~8h oder Browser-Neustart ab.",
+        ]:
+            il.addWidget(lbl(step, C["subtext"], size=9))
+        tl1.addWidget(info1)
+
+        sf_btn = btn("🌐  Salesforce in Browser öffnen",
+                     lambda: webbrowser.open("https://koenig-bauer.lightning.force.com"),
+                     "Öffnet Salesforce im Standardbrowser")
+        sf_btn.setStyleSheet(f"QPushButton{{background:#1a4a6a;border:1px solid #2a6090;color:{C['text']};border-radius:7px;padding:7px 14px;}} QPushButton:hover{{background:#1e5a7a;}}")
+        tl1.addWidget(sf_btn)
+
+        fl_sid = QFormLayout()
+        fl_sid.setSpacing(8)
+        self._sid_edit = make_entry("Session ID (sid-Cookie) einfügen…", pw=True)
+        self._sid_edit.setText(self._profile.get("sf_session",""))
+        self._sid_edit.setMinimumWidth(420)
+        show_cb = QPushButton("👁")
+        show_cb.setFixedSize(30, 30)
+        show_cb.setCheckable(True)
+        show_cb.setStyleSheet(f"QPushButton{{background:transparent;border:none;color:{C['subtext']};}} QPushButton:checked{{color:{C['accent']};}}")
+        show_cb.toggled.connect(
+            lambda on: self._sid_edit.setEchoMode(
+                QLineEdit.EchoMode.Normal if on else QLineEdit.EchoMode.Password))
+        sid_row = QHBoxLayout()
+        sid_row.addWidget(self._sid_edit)
+        sid_row.addWidget(show_cb)
+        fl_sid.addRow("Session ID:", sid_row)
+        tl1.addLayout(fl_sid)
+
+        conn1 = btn("🔑  Verbinden  (Session ID)", self._connect_session,
+                    "Salesforce-Verbindung mit Session ID herstellen")
+        conn1.setStyleSheet(f"QPushButton{{background:#1a5280;border:1px solid #2a6aa0;color:#d4eeff;border-radius:7px;padding:8px;font-weight:bold;}} QPushButton:hover{{background:#1e6090;}}")
+        tl1.addWidget(conn1)
+        tl1.addStretch()
+        tabs.addTab(t1, "🍪  Session ID")
+
+        # ── Tab 2: OAuth (Email / Passwort) ────────────────────────────────────
+        t2 = QWidget()
+        tl2 = QVBoxLayout(t2)
+        tl2.setContentsMargins(20, 16, 20, 16)
+        tl2.setSpacing(10)
+
+        info2 = QFrame()
+        info2.setStyleSheet(f"background:{C['surface2']}; border-radius:7px;")
+        il2 = QVBoxLayout(info2)
+        il2.setContentsMargins(14,10,14,10)
+        il2.addWidget(lbl("🔐  OAuth — Username / Password Flow", C["accent"], bold=True))
+        il2.addWidget(lbl("Benötigt eine 'Connected App' in Salesforce Setup.",
+                          C["subtext"], size=9))
+        il2.addWidget(lbl("Setup → App Manager → New Connected App → OAuth aktivieren.",
+                          C["subtext"], size=9))
+        tl2.addWidget(info2)
+
+        fl2 = QFormLayout()
+        fl2.setSpacing(8)
+        fl2.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self._oauth_email  = make_entry("vorname.nachname@firma.de")
+        self._oauth_pw     = make_entry("Passwort", pw=True)
+        self._oauth_token  = make_entry("Security Token (aus SF-Profil → Einstellungen)")
+        self._oauth_cid    = make_entry("Consumer Key der Connected App")
+        self._oauth_csec   = make_entry("Consumer Secret", pw=True)
+        self._oauth_url    = make_entry("Login-URL", width=280)
+        self._oauth_url.setText("https://login.salesforce.com")
+        # Gespeicherte Werte laden
+        for attr, key in [
+            ("_oauth_email","oauth_email"),("_oauth_cid","oauth_client_id"),
+            ("_oauth_url","oauth_login_url"),
+        ]:
+            getattr(self, attr).setText(self._profile.get(key,"") or getattr(self,attr).text())
+
+        fl2.addRow("E-Mail:",         self._oauth_email)
+        fl2.addRow("Passwort:",       self._oauth_pw)
+        fl2.addRow("Security Token:", self._oauth_token)
+        fl2.addRow("Consumer Key:",   self._oauth_cid)
+        fl2.addRow("Consumer Secret:",self._oauth_csec)
+        fl2.addRow("Login-URL:",      self._oauth_url)
+        tl2.addLayout(fl2)
+
+        conn2 = btn("🔑  Verbinden  (OAuth)", self._connect_oauth,
+                    "Salesforce-Verbindung mit Email/Passwort herstellen")
+        conn2.setStyleSheet(f"QPushButton{{background:#1a5280;border:1px solid #2a6aa0;color:#d4eeff;border-radius:7px;padding:8px;font-weight:bold;}} QPushButton:hover{{background:#1e6090;}}")
+        tl2.addWidget(conn2)
+        tl2.addStretch()
+        tabs.addTab(t2, "🔐  OAuth / Passwort")
+
+        root.addStretch()
+
+    def _set_status(self, state, text):
+        colors = {"ok": C["green"], "warn": C["yellow"], "err": C["red"]}
+        col = colors.get(state, C["red"])
+        self._status_dot.setStyleSheet(f"color:{col}; font-size:14pt;")
+        self._status_txt.setText(text)
+        self._status_txt.setStyleSheet(f"color:{col};")
+
+    def _connect_session(self):
+        inst = SF_INSTANCE_URL
+        sid  = self._sid_edit.text().strip()
+        self._set_status("warn","Verbinde…")
+        self._worker = SFSessionWorker(sid, inst)
+        self._worker.success.connect(self._on_success)
+        self._worker.error.connect(self._on_error)
+        self._worker.start()
+
+    def _connect_oauth(self):
+        self._set_status("warn","Verbinde…")
+        self._worker = SFOAuthWorker(
+            self._oauth_email.text().strip(),
+            self._oauth_pw.text(),
+            self._oauth_token.text().strip(),
+            self._oauth_cid.text().strip(),
+            self._oauth_csec.text(),
+            self._oauth_url.text().strip() or "https://login.salesforce.com",
+        )
+        self._worker.success.connect(self._on_success)
+        self._worker.error.connect(self._on_error)
+        self._worker.start()
+
+    def _on_success(self, token, inst_url, user_id, name):
+        self._set_status("ok", f"Verbunden  ·  {name}")
+        self.sf_connected.emit(token, inst_url, user_id, name)
+
+    def _on_error(self, err):
+        self._set_status("err","Nicht verbunden")
+        QMessageBox.critical(self,"Salesforce Fehler", err)
+
+    def _disconnect(self):
+        self._set_status("err","Nicht verbunden")
+        self.sf_disconnected.emit()
+
+    def update_status(self, state, text):
+        """Wird vom Hauptfenster beim Ping-Ergebnis aufgerufen."""
+        self._set_status(state, text)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Seite 1: Arbeitszeiten — Monatsansicht
+# ══════════════════════════════════════════════════════════════════════════════
+
+class ArbeitsZeitenPage(QWidget):
+    """
+    Monatsansicht aller Arbeitstage.
+    Lädt Daten aus Salesforce oder ermöglicht manuelle Eingabe.
+    Alle Tage sind inline editierbar; das Detail-Panel unten
+    ermöglicht die Bearbeitung einzelner Einträge (Kunden, Zeiten usw.).
+    """
+    status_msg = pyqtSignal(str)
+
+    def __init__(self, get_sf, get_wohnort, parent=None):
+        super().__init__(parent)
+        self._get_sf     = get_sf      # Callable → (token, inst_url, user_id) oder None
+        self._get_wohnort = get_wohnort
+        today = datetime.date.today()
+        self._month = today.month
+        self._year  = today.year
+        self._day_data: dict = {}       # {iso_date: day_data}
+        self._rows:  dict = {}          # {iso_date: DayRow}
+        self._selected: str | None = None
+        self._build()
+        self._load_local()
+
+    def _build(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── Kopfzeile ──────────────────────────────────────────────────────────
+        hdr = QFrame()
+        hdr.setStyleSheet(f"background:{C['surface']}; border-bottom:1px solid {C['border']};")
+        hl = QHBoxLayout(hdr)
+        hl.setContentsMargins(14, 8, 14, 8)
+        hl.setSpacing(10)
+
+        hl.addWidget(lbl("⏱  Arbeitszeiten", C["accent"], bold=True, size=12))
+        hl.addWidget(lbl("—", C["dimtext"]))
+
+        # Monatsauswahl
+        self._month_cb = make_combo(MONTH_NAMES, 120, MONTH_NAMES[self._month-1])
+        self._month_cb.currentIndexChanged.connect(self._on_month_change)
+        hl.addWidget(self._month_cb)
+
+        self._year_sb = QSpinBox()
+        self._year_sb.setRange(2020, 2099)
+        self._year_sb.setValue(self._year)
+        self._year_sb.setFixedWidth(70)
+        self._year_sb.valueChanged.connect(self._on_month_change)
+        hl.addWidget(self._year_sb)
+
+        hl.addStretch()
+
+        sf_btn = btn("☁  Von SF laden", self._load_from_sf,
+                     "Daten aus Salesforce für diesen Monat laden")
+        sf_btn.setStyleSheet(f"QPushButton{{background:#1a5280;border:1px solid #2a6090;color:#d4eeff;border-radius:7px;padding:6px 14px;}} QPushButton:hover{{background:#1e6090;}}")
+        hl.addWidget(sf_btn)
+
+        save_btn = btn("💾  Speichern", self._save_all,
+                       "Alle Monatsdaten lokal speichern")
+        save_btn.setStyleSheet(f"QPushButton{{background:#2a6644;border:1px solid #337a50;color:#d4f5e4;border-radius:7px;padding:6px 14px;}} QPushButton:hover{{background:#337a50;}}")
+        hl.addWidget(save_btn)
+
+        root.addWidget(hdr)
+
+        # ── Spaltenköpfe ───────────────────────────────────────────────────────
+        col_hdr = QFrame()
+        col_hdr.setStyleSheet(f"background:{C['header']}; border-bottom:1px solid {C['border']};")
+        cl = QHBoxLayout(col_hdr)
+        cl.setContentsMargins(8, 4, 8, 4)
+        cl.setSpacing(6)
+        for txt, w in [("Wt",26),("Datum",76),("Status",110),
+                       ("Start",62),("Ende",62),("P",44),("Std",46)]:
+            lb = lbl(txt, C["accent"])
+            lb.setFixedWidth(w)
+            cl.addWidget(lbl(" ",size=8) if txt in ("Start","Ende","P") else lb)
+            if txt in ("Start","Ende","P"):
+                cl.addWidget(lb)
+        cl.addWidget(lbl("Einträge / Zusammenfassung", C["accent"]))
+        cl.addStretch()
+        root.addWidget(col_hdr)
+
+        # ── Hauptbereich: Liste + Detail-Panel ────────────────────────────────
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setHandleWidth(4)
+
+        # Scroll-Bereich für Tageszeilen
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        self._list_widget = QWidget()
+        self._list_layout = QVBoxLayout(self._list_widget)
+        self._list_layout.setContentsMargins(0, 0, 0, 0)
+        self._list_layout.setSpacing(0)
+        scroll.setWidget(self._list_widget)
+        splitter.addWidget(scroll)
+
+        # Detail-Panel
+        self._detail = DetailPanel(show_meals=False, parent=self)
+        self._detail.saved.connect(self._on_entry_saved)
+        splitter.addWidget(self._detail)
+
+        splitter.setSizes([600, 220])
+        root.addWidget(splitter, 1)
+
+        # ── Stunden-Bar ────────────────────────────────────────────────────────
+        bar = QFrame()
+        bar.setStyleSheet(f"background:{C['header']}; border-top:1px solid {C['border']};")
+        bl = QHBoxLayout(bar)
+        bl.setContentsMargins(14, 6, 14, 6)
+        bl.setSpacing(8)
+
+        self._bar_month = lbl("—", C["accent"], bold=True)
+        self._bar_prev  = lbl("—", C["subtext"])
+        self._bar_gleit = lbl("—", C["yellow"], bold=True)
+
+        for lab, val_lbl in [
+            (lbl("Monat:", C["subtext"]), self._bar_month),
+            (lbl("  │  ", C["dimtext"]), None),
+            (lbl("Vormonat:", C["subtext"]), self._bar_prev),
+            (lbl("  │  ", C["dimtext"]), None),
+            (lbl("Gleitzeitkonto:", C["subtext"]), self._bar_gleit),
+        ]:
+            bl.addWidget(lab)
+            if val_lbl: bl.addWidget(val_lbl)
+        bl.addStretch()
+        root.addWidget(bar)
+
+    # ── Monatswechsel ──────────────────────────────────────────────────────────
+
+    def _on_month_change(self, *_):
+        self._month = self._month_cb.currentIndex() + 1
+        self._year  = self._year_sb.value()
+        self._load_local()
+
+    def _load_local(self):
+        """Monatsdaten aus KW-JSON-Dateien laden und Ansicht aufbauen."""
+        self._day_data = load_month_data(self._year, self._month)
+        self._selected = None
+        self._rebuild_list()
+        self._update_bar()
+
+    def _rebuild_list(self):
+        """Alle Tageszeilen des Monats neu aufbauen."""
+        # Alte Zeilen entfernen
+        while self._list_layout.count():
+            w = self._list_layout.takeAt(0).widget()
+            if w: w.deleteLater()
+        self._rows.clear()
+
+        cal_days = calendar.monthrange(self._year, self._month)[1]
+        for dn in range(1, cal_days + 1):
+            d  = datetime.date(self._year, self._month, dn)
+            ds = d.isoformat()
+            if ds not in self._day_data:
+                self._day_data[ds] = {}
+            row = DayRow(d, self._day_data[ds], alt=(dn % 2 == 0))
+            row.clicked.connect(self._select_day)
+            self._rows[ds] = row
+            self._list_layout.addWidget(row)
+
+        self._list_layout.addStretch()
+
+    def _select_day(self, iso_date):
+        """Tag auswählen und in Detail-Panel laden."""
+        if self._selected and self._selected in self._rows:
+            self._rows[self._selected].select(False)
+        self._selected = iso_date
+        self._rows[iso_date].select(True)
+        day_data = self._day_data.setdefault(iso_date, {})
+        if not day_data.get("entries"):
+            day_data.setdefault("entries", [{}])
+        self._detail.load_day(iso_date, day_data, self._get_wohnort())
+
+    def _on_entry_saved(self, iso_date, day_data):
+        """Nach 'Übernehmen' im Detail-Panel: Ansicht aktualisieren."""
+        self._day_data[iso_date] = day_data
+        if iso_date in self._rows:
+            self._rows[iso_date].refresh()
+        self._update_bar()
+        self.status_msg.emit(f"Eintrag {iso_date} übernommen — bitte noch speichern!")
+
+    def _update_bar(self):
+        """Monats-Stunden und Gleitzeitkonto neu berechnen."""
+        total, gleit = get_month_summary(self._year, self._month, self._day_data)
+        mn = MONTH_NAMES[self._month - 1]
+        self._bar_month.setText(f"{mn} {self._year}: {total:.2f} h")
+
+        prev_m = self._month - 1 or 12
+        prev_y = self._year - (1 if self._month == 1 else 0)
+        prev_h, _ = get_month_summary(prev_y, prev_m)
+        prev_name = MONTH_NAMES[prev_m - 1]
+        self._bar_prev.setText(f"{prev_name}: {prev_h:.2f} h")
+
+        g_txt = f"+{gleit:.2f} h" if gleit > 0 else f"{gleit:.2f} h"
+        g_col = C["green"] if gleit > 0 else C["red"] if gleit < 0 else C["subtext"]
+        self._bar_gleit.setText(g_txt)
+        self._bar_gleit.setStyleSheet(f"color:{g_col}; font-weight:bold;")
+
+    # ── Salesforce laden ───────────────────────────────────────────────────────
+
+    def _load_from_sf(self):
+        sf = self._get_sf()
+        if not sf:
+            QMessageBox.warning(self,"Hinweis","Bitte zuerst bei Salesforce anmelden (Start-Seite).")
+            return
+        token, inst_url, user_id = sf
+        # Kompletter Monat
+        first = datetime.date(self._year, self._month, 1).isoformat()
+        last  = datetime.date(self._year, self._month,
+                              calendar.monthrange(self._year,self._month)[1]).isoformat()
+        self._sf_worker = SFLoadWorker(token, inst_url, user_id,
+                                       first, last, self._get_wohnort())
+        self._sf_worker.success.connect(self._on_sf_success)
+        self._sf_worker.error.connect(self._on_sf_error)
+        self._sf_worker.progress.connect(lambda m: self.status_msg.emit(m))
+        self._sf_worker.start()
+        self.status_msg.emit("🔄  Lade Daten aus Salesforce…")
+
+    def _on_sf_success(self, new_data):
+        count = len(new_data)
+        self._day_data.update(new_data)
+        self._rebuild_list()
+        self._update_bar()
+        # Automatisch speichern
+        self._save_all(silent=True)
+        self.status_msg.emit(f"✅  {count} Tag(e) aus Salesforce geladen und gespeichert.")
+        QMessageBox.information(self,"SF Laden",
+            f"✅  {count} Tag(e) geladen.\nDaten wurden automatisch gespeichert.")
+
+    def _on_sf_error(self, err):
+        self.status_msg.emit(f"❌  SF-Fehler: {err[:80]}")
+        QMessageBox.critical(self,"Salesforce Fehler", err)
+
+    def _save_all(self, silent=False):
+        """Monatsdaten in KW-JSON-Dateien speichern."""
+        # Nach KW gruppieren und speichern
+        kw_groups = defaultdict(dict)
+        for ds, day in self._day_data.items():
+            try:
+                d   = datetime.date.fromisoformat(ds)
+                iso = d.isocalendar()
+                kw_groups[(iso[0], iso[1])][ds] = day
+            except Exception:
+                pass
+        for (ky, kw), kd in kw_groups.items():
+            path = os.path.join(KW_DIR, f"{ky}-W{kw:02d}.json")
+            existing = load_json(path, {})
+            existing.update(kd)
+            save_json(path, existing)
+        if not silent:
+            QMessageBox.information(self,"Gespeichert",
+                f"Monatsdaten für {MONTH_NAMES[self._month-1]} {self._year} gespeichert.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Seite 2: Reisekosten — Wochenansicht
+# ══════════════════════════════════════════════════════════════════════════════
+
+class ReisekostenPage(QWidget):
+    """
+    Wochenansicht (KW) für Reisekostenerfassung.
+    Zeigt Mo–So mit allen Feldern inkl. Mahlzeiten und Sonstiges.
+    Daten werden automatisch nach SF-Import lokal gespeichert.
+    """
+    status_msg = pyqtSignal(str)
+
+    def __init__(self, get_sf, get_wohnort, parent=None):
+        super().__init__(parent)
+        self._get_sf      = get_sf
+        self._get_wohnort = get_wohnort
+        kw, yr = current_kw()
+        self._kw   = kw
+        self._year = yr
+        self._day_data: dict = {}
+        self._extras: dict   = {}
+        self._rows:  dict    = {}
+        self._selected: str | None = None
+        self._build()
+        self._load_local()
+
+    def _build(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── Kopfzeile ──────────────────────────────────────────────────────────
+        hdr = QFrame()
+        hdr.setStyleSheet(f"background:{C['surface']}; border-bottom:1px solid {C['border']};")
+        hl  = QHBoxLayout(hdr)
+        hl.setContentsMargins(14, 8, 14, 8)
+        hl.setSpacing(10)
+
+        hl.addWidget(lbl("✈  Reisekosten", C["accent"], bold=True, size=12))
+        hl.addWidget(lbl("—", C["dimtext"]))
+        hl.addWidget(lbl("KW", C["subtext"]))
+
+        self._kw_sb = QSpinBox()
+        self._kw_sb.setRange(1, 53)
+        self._kw_sb.setValue(self._kw)
+        self._kw_sb.setFixedWidth(58)
+        self._kw_sb.valueChanged.connect(self._on_kw_change)
+        hl.addWidget(self._kw_sb)
+
+        hl.addWidget(lbl("/", C["subtext"]))
+        self._yr_sb = QSpinBox()
+        self._yr_sb.setRange(2020, 2099)
+        self._yr_sb.setValue(self._year)
+        self._yr_sb.setFixedWidth(70)
+        self._yr_sb.valueChanged.connect(self._on_kw_change)
+        hl.addWidget(self._yr_sb)
+
+        self._range_lbl = lbl("", C["dimtext"], size=9)
+        hl.addWidget(self._range_lbl)
+        hl.addStretch()
+
+        sf_btn = btn("☁  Von SF laden", self._load_from_sf,
+                     "Wochendaten aus Salesforce laden")
+        sf_btn.setStyleSheet(f"QPushButton{{background:#1a5280;border:1px solid #2a6090;color:#d4eeff;border-radius:7px;padding:6px 14px;}} QPushButton:hover{{background:#1e6090;}}")
+        hl.addWidget(sf_btn)
+
+        save_btn = btn("💾  Speichern", self._save_kw,
+                       "KW-Daten lokal speichern")
+        save_btn.setStyleSheet(f"QPushButton{{background:#2a6644;border:1px solid #337a50;color:#d4f5e4;border-radius:7px;padding:6px 14px;}} QPushButton:hover{{background:#337a50;}}")
+        hl.addWidget(save_btn)
+        root.addWidget(hdr)
+
+        # ── Splitter: Liste + Detail ───────────────────────────────────────────
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setHandleWidth(4)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._list_widget = QWidget()
+        self._list_layout = QVBoxLayout(self._list_widget)
+        self._list_layout.setContentsMargins(0, 0, 0, 0)
+        self._list_layout.setSpacing(0)
+        scroll.setWidget(self._list_widget)
+        splitter.addWidget(scroll)
+
+        self._detail = DetailPanel(show_meals=True, parent=self)
+        self._detail.saved.connect(self._on_entry_saved)
+        splitter.addWidget(self._detail)
+
+        splitter.setSizes([380, 240])
+        root.addWidget(splitter, 1)
+
+        # ── Sonstiges-Zeile ────────────────────────────────────────────────────
+        ebar = QFrame()
+        ebar.setStyleSheet(f"background:{C['surface']}; border-top:1px solid {C['border']};")
+        el = QHBoxLayout(ebar)
+        el.setContentsMargins(14, 6, 14, 6)
+        el.setSpacing(8)
+        el.addWidget(lbl("💰  Sonstiges €:", C["subtext"]))
+        self._sonstiges_val = QLineEdit()
+        self._sonstiges_val.setFixedWidth(80)
+        self._sonstiges_val.setPlaceholderText("0.00")
+        el.addWidget(self._sonstiges_val)
+        el.addWidget(lbl("Bezeichnung:", C["subtext"]))
+        self._sonstiges_txt = QLineEdit()
+        self._sonstiges_txt.setFixedWidth(220)
+        self._sonstiges_txt.setPlaceholderText("Parkgebühren, Maut, Fähre…")
+        el.addWidget(self._sonstiges_txt)
+        el.addStretch()
+        root.addWidget(ebar)
+
+    # ── KW-Wechsel ─────────────────────────────────────────────────────────────
+
+    def _on_kw_change(self, *_):
+        self._kw   = self._kw_sb.value()
+        self._year = self._yr_sb.value()
+        self._load_local()
+
+    def _load_local(self):
+        dates = week_dates(self._year, self._kw)
+        self._range_lbl.setText(
+            f"{dates[0].strftime('%d.%m.')} – {dates[-1].strftime('%d.%m.%Y')}")
+        path = os.path.join(KW_DIR, f"{self._year}-W{self._kw:02d}.json")
+        raw  = load_json(path, {})
+        self._extras = raw.pop("_extras", {})
+        self._day_data = raw
+        self._selected = None
+        self._rebuild_list(dates)
+        # Sonstiges-Felder befüllen
+        self._sonstiges_val.setText(self._extras.get("sonstiges",""))
+        self._sonstiges_txt.setText(self._extras.get("sonstiges_txt",""))
+
+    def _rebuild_list(self, dates=None):
+        if dates is None:
+            dates = week_dates(self._year, self._kw)
+        while self._list_layout.count():
+            w = self._list_layout.takeAt(0).widget()
+            if w: w.deleteLater()
+        self._rows.clear()
+
+        for i, d in enumerate(dates):
+            ds = d.isoformat()
+            if ds not in self._day_data:
+                self._day_data[ds] = {}
+            row = DayRow(d, self._day_data[ds], alt=(i % 2 == 0))
+            row.clicked.connect(self._select_day)
+            self._rows[ds] = row
+            self._list_layout.addWidget(row)
+
+        self._list_layout.addStretch()
+
+    def _select_day(self, iso_date):
+        if self._selected and self._selected in self._rows:
+            self._rows[self._selected].select(False)
+        self._selected = iso_date
+        self._rows[iso_date].select(True)
+        day_data = self._day_data.setdefault(iso_date, {})
+        if not day_data.get("entries"):
+            day_data.setdefault("entries", [{}])
+        self._detail.load_day(iso_date, day_data, self._get_wohnort())
+
+    def _on_entry_saved(self, iso_date, day_data):
+        self._day_data[iso_date] = day_data
+        if iso_date in self._rows:
+            self._rows[iso_date].refresh()
+        self.status_msg.emit(f"Eintrag {iso_date} übernommen — bitte noch KW speichern!")
+
+    # ── SF laden ───────────────────────────────────────────────────────────────
+
+    def _load_from_sf(self):
+        sf = self._get_sf()
+        if not sf:
+            QMessageBox.warning(self,"Hinweis","Bitte zuerst bei Salesforce anmelden.")
+            return
+        token, inst_url, user_id = sf
+        dates = week_dates(self._year, self._kw)
+        self._sf_worker = SFLoadWorker(
+            token, inst_url, user_id,
+            dates[0].isoformat(), dates[-1].isoformat(), self._get_wohnort())
+        self._sf_worker.success.connect(self._on_sf_success)
+        self._sf_worker.error.connect(self._on_sf_error)
+        self._sf_worker.progress.connect(lambda m: self.status_msg.emit(m))
+        self._sf_worker.start()
+        self.status_msg.emit("🔄  Lade Daten aus Salesforce…")
+
+    def _on_sf_success(self, new_data):
+        self._day_data.update(new_data)
+        self._rebuild_list()
+        self._save_kw(silent=True)
+        count = len(new_data)
+        self.status_msg.emit(f"✅  {count} Tag(e) geladen und gespeichert.")
+        QMessageBox.information(self,"SF Laden",
+            f"✅  {count} Tag(e) geladen.\nDaten wurden automatisch gespeichert.")
+
+    def _on_sf_error(self, err):
+        self.status_msg.emit(f"❌  SF-Fehler: {err[:80]}")
+        QMessageBox.critical(self,"Salesforce Fehler", err)
+
+    def _save_kw(self, silent=False):
+        path = os.path.join(KW_DIR, f"{self._year}-W{self._kw:02d}.json")
+        data = dict(self._day_data)
+        data["_extras"] = {
+            "sonstiges":     self._sonstiges_val.text(),
+            "sonstiges_txt": self._sonstiges_txt.text(),
+        }
+        save_json(path, data)
+        if not silent:
+            QMessageBox.information(self,"Gespeichert",
+                f"KW {self._kw} / {self._year} gespeichert.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Seite 3: Info
+# ══════════════════════════════════════════════════════════════════════════════
+
+class InfoPage(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(40, 30, 40, 30)
+        lay.setSpacing(14)
+        lay.addWidget(lbl("ℹ  Info", C["accent"], bold=True, size=14))
+        lay.addWidget(sep_line())
+        for t, c in [
+            (f"TimingTool  v{APP_VERSION}", C["text"]),
+            ("Arbeitszeiten & Reisekosten via Salesforce FSL", C["subtext"]),
+            ("", None),
+            ("📁  Datenspeicherung", C["accent"]),
+            (f"  {os.path.join(BASE_DIR,'res','kw_data')}", C["dimtext"]),
+            ("", None),
+            ("🌐  Salesforce-Instanz", C["accent"]),
+            (f"  {SF_INSTANCE_URL}", C["dimtext"]),
+            ("", None),
+            ("📋  Datenformat", C["accent"]),
+            ("  JSON — kompatibel mit dem bestehenden Python-Tool (az_reisekosten.py)", C["dimtext"]),
+            ("", None),
+            ("⚙  Framework", C["accent"]),
+            ("  PyQt6  ·  Python 3.10+", C["dimtext"]),
+        ]:
+            if t: lay.addWidget(lbl(t, c or C["text"]))
+        lay.addStretch()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Seite 4: Einstellungen
+# ══════════════════════════════════════════════════════════════════════════════
+
+class EinstellungenPage(QWidget):
+    """Persönliche Daten und Salesforce-Konfiguration speichern."""
+    def __init__(self, profile, parent=None):
+        super().__init__(parent)
+        self._profile = profile
+        self._build()
+
+    def _build(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(30, 24, 30, 24)
+        lay.setSpacing(16)
+        lay.addWidget(lbl("⚙  Einstellungen", C["accent"], bold=True, size=14))
+        lay.addWidget(sep_line())
+
+        # Persönliche Daten
+        g1 = QGroupBox("👤  Persönliche Daten")
+        f1 = QFormLayout(g1)
+        f1.setSpacing(8)
+        self._vorname  = make_entry("Vorname")
+        self._nachname = make_entry("Nachname")
+        self._wohnort  = make_entry("Wohnort (Startpunkt für Routenberechnung)")
+        self._pers_nr  = make_entry("Personalnummer")
+        self._vorname.setText( self._profile.get("vorname",""))
+        self._nachname.setText(self._profile.get("nachname",""))
+        self._wohnort.setText( self._profile.get("wohnort",""))
+        self._pers_nr.setText( self._profile.get("pers_nr",""))
+        f1.addRow("Vorname:",      self._vorname)
+        f1.addRow("Nachname:",     self._nachname)
+        f1.addRow("Wohnort:",      self._wohnort)
+        f1.addRow("Personal-Nr.:", self._pers_nr)
+        lay.addWidget(g1)
+
+        # SF Session-ID (gespeichert für Schnell-Login)
+        g2 = QGroupBox("☁  Salesforce Standardwerte")
+        f2 = QFormLayout(g2)
+        f2.setSpacing(8)
+        self._sf_session = make_entry("Session ID (gespeicherter Wert)", pw=True)
+        self._sf_session.setText(self._profile.get("sf_session",""))
+        self._oauth_email  = make_entry("OAuth E-Mail")
+        self._oauth_cid    = make_entry("OAuth Consumer Key")
+        self._oauth_url    = make_entry("Login-URL")
+        for attr, key, default in [
+            ("_oauth_email","oauth_email",""),
+            ("_oauth_cid","oauth_client_id",""),
+            ("_oauth_url","oauth_login_url","https://login.salesforce.com"),
+        ]:
+            getattr(self,attr).setText(self._profile.get(key, default))
+        f2.addRow("Session ID:",     self._sf_session)
+        f2.addRow("OAuth E-Mail:",   self._oauth_email)
+        f2.addRow("Consumer Key:",   self._oauth_cid)
+        f2.addRow("Login-URL:",      self._oauth_url)
+        lay.addWidget(g2)
+
+        # Datenpfad-Info
+        g3 = QGroupBox("📁  Datenspeicherung")
+        g3l = QVBoxLayout(g3)
+        g3l.addWidget(lbl(f"KW-Daten: {KW_DIR}", C["subtext"], size=9))
+        g3l.addWidget(lbl(f"Profil:   {PROFILE_FILE}", C["subtext"], size=9))
+        open_btn = btn("📂  Ordner öffnen",
+                       lambda: os.startfile(RES_DIR) if sys.platform=="win32"
+                               else os.system(f"xdg-open {RES_DIR}"),
+                       "res-Ordner im Explorer öffnen")
+        g3l.addWidget(open_btn)
+        lay.addWidget(g3)
+
+        save_btn = btn("💾  Einstellungen speichern", self._save,
+                       "Alle Einstellungen speichern")
+        save_btn.setStyleSheet(f"QPushButton{{background:#2a6644;border:1px solid #337a50;color:#d4f5e4;border-radius:7px;padding:7px 18px;font-weight:bold;}} QPushButton:hover{{background:#337a50;}}")
+        lay.addWidget(save_btn)
+        lay.addStretch()
+
+    def _save(self):
+        self._profile.update({
+            "vorname":        self._vorname.text(),
+            "nachname":       self._nachname.text(),
+            "wohnort":        self._wohnort.text(),
+            "pers_nr":        self._pers_nr.text(),
+            "sf_session":     self._sf_session.text(),
+            "oauth_email":    self._oauth_email.text(),
+            "oauth_client_id":self._oauth_cid.text(),
+            "oauth_login_url":self._oauth_url.text(),
+        })
+        save_json(PROFILE_FILE, self._profile)
+        QMessageBox.information(self,"Gespeichert","Einstellungen wurden gespeichert.")
+
+    def get_wohnort(self):
+        return self._wohnort.text().strip() or "Wohnort"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Hauptfenster
+# ══════════════════════════════════════════════════════════════════════════════
+
+class MainWindow(QMainWindow):
+    """
+    Hauptfenster des TimingTools.
+    Enthält Sidebar (links) und Inhaltsbereich (rechts, QStackedWidget).
+    Verwaltet den Salesforce-Verbindungszustand zentral.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._sf_token    = None
+        self._sf_inst_url = None
+        self._sf_user_id  = None
+        self._sf_name     = ""
+        self._profile     = load_json(PROFILE_FILE, {})
+
+        self.setWindowTitle("TimingTool — AZ & Reisekosten")
+        self.setMinimumSize(1100, 700)
+        self.resize(1320, 800)
+
+        if os.path.isfile(ICON_FILE):
+            self.setWindowIcon(QIcon(ICON_FILE))
+
+        self._build_ui()
+        self._start_ping_timer()
+
+    def _build_ui(self):
+        central = QWidget()
+        self.setCentralWidget(central)
+        main_lay = QHBoxLayout(central)
+        main_lay.setContentsMargins(0, 0, 0, 0)
+        main_lay.setSpacing(0)
+
+        # Sidebar
+        self._sidebar = Sidebar()
+        self._sidebar.page_changed.connect(self._switch_page)
+        main_lay.addWidget(self._sidebar)
+
+        # Inhaltsbereich
+        self._stack = QStackedWidget()
+        main_lay.addWidget(self._stack, 1)
+
+        # Seiten anlegen
+        self._page_start     = StartPage(self._profile)
+        self._page_az        = ArbeitsZeitenPage(self._get_sf, self._get_wohnort)
+        self._page_rk        = ReisekostenPage(  self._get_sf, self._get_wohnort)
+        self._page_info      = InfoPage()
+        self._page_settings  = EinstellungenPage(self._profile)
+
+        for p in [self._page_start, self._page_az, self._page_rk,
+                  self._page_info, self._page_settings]:
+            self._stack.addWidget(p)
+
+        # Signale verbinden
+        self._page_start.sf_connected.connect(self._on_sf_connected)
+        self._page_start.sf_disconnected.connect(self._on_sf_disconnected)
+        self._page_az.status_msg.connect(self._set_status)
+        self._page_rk.status_msg.connect(self._set_status)
+
+        # Statusleiste
+        self._statusbar = self.statusBar()
+        self._statusbar.showMessage("Bereit")
+
+    def _switch_page(self, idx):
+        self._stack.setCurrentIndex(idx)
+
+    def _get_sf(self):
+        """SF-Verbindungsdaten zurückgeben — None wenn nicht verbunden."""
+        if self._sf_token:
+            return self._sf_token, self._sf_inst_url, self._sf_user_id
+        return None
+
+    def _get_wohnort(self):
+        return self._page_settings.get_wohnort()
+
+    def _on_sf_connected(self, token, inst_url, user_id, name):
+        self._sf_token    = token
+        self._sf_inst_url = inst_url
+        self._sf_user_id  = user_id
+        self._sf_name     = name
+        self._sidebar.set_sf_status("ok", name)
+        self._set_status(f"✅  Salesforce verbunden  —  {name}")
+        # Session ID im Profil speichern
+        self._profile["sf_session"] = token
+        save_json(PROFILE_FILE, self._profile)
+
+    def _on_sf_disconnected(self):
+        self._sf_token = None
+        self._sidebar.set_sf_status("err")
+        self._set_status("Salesforce getrennt")
+
+    def _set_status(self, msg):
+        self._statusbar.showMessage(msg, 8000)
+
+    # ── SF-Ping alle 10 Sekunden ───────────────────────────────────────────────
+
+    def _start_ping_timer(self):
+        self._ping_timer = QTimer(self)
+        self._ping_timer.timeout.connect(self._ping_sf)
+        self._ping_timer.start(10_000)
+
+    def _ping_sf(self):
+        if not self._sf_token:
+            return
+        worker = SFPingWorker(self._sf_token, self._sf_inst_url)
+        worker.alive.connect(  lambda: self._sidebar.set_sf_status("ok",  self._sf_name))
+        worker.warning.connect(lambda: (
+            self._sidebar.set_sf_status("warn"),
+            self._page_start.update_status("warn","Verbindungsproblem")))
+        worker.expired.connect(lambda: (
+            self.__setattr__("_sf_token", None),
+            self._sidebar.set_sf_status("err","Session abgelaufen"),
+            self._page_start.update_status("err","Session abgelaufen"),
+            self._set_status("⚠  Salesforce-Session abgelaufen — bitte neu verbinden.")))
+        worker.start()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Einstiegspunkt
+# ══════════════════════════════════════════════════════════════════════════════
+
+def main():
+    app = QApplication(sys.argv)
+    app.setApplicationName("TimingTool")
+    app.setApplicationVersion(APP_VERSION)
+    app.setStyleSheet(STYLE)
+    if os.path.isfile(ICON_FILE):
+        app.setWindowIcon(QIcon(ICON_FILE))
+    win = MainWindow()
+    win.show()
+    sys.exit(app.exec())
+
+if __name__ == "__main__":
+    main()

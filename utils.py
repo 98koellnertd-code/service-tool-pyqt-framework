@@ -181,6 +181,49 @@ APP_VERSION = "1.0"
 SF_INSTANCE_URL = "https://koenig-bauer.my.salesforce.com"
 SF_API_VER      = "v59.0"
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Modul-Register (EINE Quelle der Wahrheit)
+# ══════════════════════════════════════════════════════════════════════════════
+# Zentrale Liste aller Programm-Module. Wird von der Sidebar (main.py), der
+# Startseite (seite_start.py) und der Info-Seite (seite_info.py) gemeinsam
+# genutzt, damit Reihenfolge, Icons, Namen und Beschreibungen nicht mehr
+# mehrfach gepflegt (und damit auseinanderlaufen) müssen.
+#
+# Felder je Eintrag:
+#   nav   – Navigations-Index (muss zur Seiten-Fabrik in main.py passen)
+#   icon  – Pfad zum PNG-Icon (relativ zu MEIPASS_DIR)
+#   emoji – kompaktes Symbol für die Info-Modulkacheln
+#   name  – Anzeigename
+#   desc  – einzeilige Beschreibung (überall identisch verwendet)
+MODULES = [
+    {"nav": 1,  "icon": "icons/netzwerk.png",       "emoji": "🔗",
+     "name": "API Verbindungen",  "desc": "Salesforce verbinden · SAP & TIA Portal in Vorbereitung"},
+    {"nav": 12, "icon": "icons/monitor.png",         "emoji": "📊",
+     "name": "Dashboard",         "desc": "Wochenübersicht mit Kennzahlen und nächsten Terminen"},
+    {"nav": 11, "icon": "icons/lager.png",           "emoji": "📦",
+     "name": "Mein Lager",        "desc": "Persönlichen Lagerbestand verwalten, Unterbestands-Warnung"},
+    {"nav": 2,  "icon": "icons/arbeitszeiten.png",   "emoji": "⏱",
+     "name": "Arbeitszeiten",     "desc": "Servicezeiten erfassen und als Meldung exportieren"},
+    {"nav": 3,  "icon": "icons/reisekosten.png",     "emoji": "✈",
+     "name": "Reisekosten",       "desc": "Reisekostenabrechnung (FB_0020) erstellen und exportieren"},
+    {"nav": 4,  "icon": "icons/ersatzteile.png",     "emoji": "🔧",
+     "name": "Ersatzteile",       "desc": "Ersatzteilkatalog je Gerätesystem durchsuchen"},
+    {"nav": 5,  "icon": "icons/bestellung.png",      "emoji": "🛒",
+     "name": "Bestellung",        "desc": "Ersatzteil-Bestellungen zusammenstellen und exportieren"},
+    {"nav": 10, "icon": "icons/datenbank.png",       "emoji": "🗄",
+     "name": "Datenbank",         "desc": "Serviceberichte per Mail + KI-Analyse, Kunden verwalten"},
+    {"nav": 6,  "icon": "icons/fehlerdiagnose.png",  "emoji": "🔍",
+     "name": "Fehlerdiagnose",    "desc": "Fehlercodes und Diagnosen je Gerätesystem nachschlagen"},
+    {"nav": 9,  "icon": "icons/configs.png",         "emoji": "📚",
+     "name": "Anleitungen",       "desc": "Anleitungen und Dokumentationen je Kategorie durchsuchen"},
+    {"nav": 13, "icon": "icons/assistent.png",       "emoji": "🤖",
+     "name": "Service-Assistent", "desc": "Offline-Suche zu Fehlern, Anleitungen und Programm"},
+    {"nav": 7,  "icon": "icons/info.png",            "emoji": "ℹ",
+     "name": "Info",              "desc": "Version, Kennzahlen, Funktionsübersicht und Update-Stand"},
+    {"nav": 8,  "icon": "icons/einstellungen.png",   "emoji": "⚙",
+     "name": "Einstellungen",     "desc": "Profil, Farben und App-Einstellungen"},
+]
+
 DAY_NAMES   = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 MONTH_NAMES = ["Januar", "Februar", "März", "April", "Mai", "Juni",
                "Juli", "August", "September", "Oktober", "November", "Dezember"]
@@ -237,11 +280,11 @@ COLOR_LABELS = {
     "text":      "Text",
     "subtext":   "Text, gedämpft",
     "dimtext":   "Text, sehr blass",
-    "accent":    "Akzentfarbe",
-    "green":     "Grün (Erfolg)",
-    "red":       "Rot (Fehler/Warnung)",
-    "yellow":    "Gelb/Orange",
-    "mauve":     "Violett",
+    "accent":    "Akzentfarbe (Aktion)",
+    "green":     "Grün (Erfolg / Speichern)",
+    "red":       "Rot (Fehler / Löschen)",
+    "yellow":    "Gelb/Orange (Sonderfunktion)",
+    "mauve":     "Violett (Export)",
     "krank_bg":  "Tag-Status: Krank",
     "urlaub_bg": "Tag-Status: Urlaub",
     "we_bg":     "Tag-Status: Wochenende",

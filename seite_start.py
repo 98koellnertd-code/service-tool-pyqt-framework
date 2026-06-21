@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap, QCursor
 
-from utils import C, APP_NAME, APP_VERSION, lbl, MEIPASS_DIR
+from utils import C, APP_NAME, APP_VERSION, lbl, btn, MEIPASS_DIR, MODULES
 
 
 class _Card(QFrame):
@@ -142,6 +142,11 @@ class StartPage(QWidget):
         ))
         title_col.addWidget(lbl(f"Version {APP_VERSION}", C["dimtext"], size=9))
         hero_lay.addLayout(title_col, 1)
+        hero_lay.addWidget(
+            btn("🧭  Tour starten", self._start_tour,
+                "Startet eine kurze geführte Tour durch das Tool.",
+                color=C["accent"]),
+            0, Qt.AlignmentFlag.AlignVCenter)
         root.addWidget(hero)
 
         # ── Sektion-Label Module ─────────────────────────────────────────────
@@ -152,38 +157,11 @@ class StartPage(QWidget):
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(6)
 
-        modules = [
-            (1, "icons/netzwerk.png",       "API Verbindungen",
-             "Salesforce verbinden · SAP & TIA Portal in Vorbereitung"),
-            (12, "icons/monitor.png",       "Dashboard",
-             "Wochenübersicht mit Kennzahlen und nächsten Terminen"),
-            (11, "icons/lager.png",         "Mein Lager",
-             "Persönlichen Lagerbestand ansehen und als PDF exportieren"),
-            (2, "icons/arbeitszeiten.png",  "Arbeitszeiten",
-             "Servicezeiten erfassen und als Meldung exportieren"),
-            (3, "icons/reisekosten.png",    "Reisekosten",
-             "Reisekostenabrechnung erstellen und exportieren"),
-            (4, "icons/ersatzteile.png",    "Ersatzteile",
-             "Ersatzteilkatalog je Gerätesystem durchsuchen"),
-            (5, "icons/bestellung.png",     "Bestellung",
-             "Ersatzteil-Bestellungen zusammenstellen und exportieren"),
-            (10, "icons/datenbank.png",     "Datenbank",
-             "Serviceberichte per Mail importieren, anzeigen und verwalten"),
-            (6, "icons/fehlerdiagnose.png", "Fehlerdiagnose",
-             "Fehlercodes und Diagnosen je Gerätesystem nachschlagen"),
-            (9, "icons/configs.png",        "Anleitungen",
-             "Anleitungen und Dokumentationen je Kategorie durchsuchen"),
-            (13, "icons/assistent.png",     "Service-Assistent",
-             "Offline-Suche zu Fehlern, Anleitungen und Programm"),
-            (7, "icons/info.png",           "Info",
-             "Versionsinformationen und Update-Prüfung"),
-            (8, "icons/einstellungen.png",  "Einstellungen",
-             "Profil, Farben und App-Einstellungen"),
-        ]
-
+        # Modul-Kacheln aus dem zentralen Register (utils.MODULES) — so bleiben
+        # Reihenfolge, Icons, Namen und Beschreibungen synchron zu Sidebar & Info.
         cols = 3
-        for i, (idx, icon, title, desc) in enumerate(modules):
-            card = _Card(idx, icon, title, desc)
+        for i, m in enumerate(MODULES):
+            card = _Card(m["nav"], m["icon"], m["name"], m["desc"])
             card.clicked.connect(self.navigate_to)
             grid.addWidget(card, i // cols, i % cols)
 
@@ -248,3 +226,8 @@ class StartPage(QWidget):
 
         scroll.setWidget(inner)
         outer.addWidget(scroll)
+
+    def _start_tour(self):
+        """Öffnet die geführte Tour (navigiert das Hauptfenster mit)."""
+        from tour import TourDialog
+        TourDialog(navigate=self.navigate_to.emit, parent=self).exec()

@@ -83,7 +83,7 @@ class LagerSeite(QWidget):
 
     def _build(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 16, 20, 16)
+        root.setContentsMargins(30, 24, 30, 24)
         root.setSpacing(12)
 
         root.addWidget(page_hero(

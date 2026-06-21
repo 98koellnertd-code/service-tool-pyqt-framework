@@ -28,7 +28,7 @@ from PyQt6.QtGui import QIcon, QPixmap
 
 from utils import (
     C, STYLE, APP_NAME, APP_VERSION, PROFILE_FILE, ICON_FILE, ICON_PNG,
-    MEIPASS_DIR,
+    MEIPASS_DIR, MODULES,
     load_json, save_json, lbl, cleanup_orphaned_meipass,
 )
 from workers import SFPingWorker
@@ -64,21 +64,10 @@ class Sidebar(QFrame):
     """
     page_changed = pyqtSignal(int)
 
-    NAV = [
-        (0, "icons/start.png", "Start"),
-        (1, "icons/netzwerk.png", "API Verbindungen"),
-        (12, "icons/monitor.png", "Dashboard"),
-        (11, "icons/lager.png", "Mein Lager"),
-        (2, "icons/arbeitszeiten.png", "Arbeitszeiten"),
-        (3, "icons/reisekosten.png", "Reisekosten"),
-        (4, "icons/ersatzteile.png", "Ersatzteile"),
-        (5, "icons/bestellung.png", "Bestellung"),
-        (10, "icons/datenbank.png", "Datenbank"),
-        (6, "icons/fehlerdiagnose.png", "Fehlerdiagnose"),
-        (9, "icons/configs.png", "Anleitungen"),
-        (13, "icons/assistent.png", "Service-Assistent"),
-        (7, "icons/info.png", "Info"),
-        (8, "icons/einstellungen.png", "Einstellungen"),
+    # Start (Home) vorne, danach das zentrale Modul-Register (utils.MODULES) —
+    # so bleiben Reihenfolge, Icons und Namen synchron zu Startseite & Info.
+    NAV = [(0, "icons/start.png", "Start")] + [
+        (m["nav"], m["icon"], m["name"]) for m in MODULES
     ]
 
     def __init__(self, parent=None):
@@ -195,23 +184,60 @@ class Sidebar(QFrame):
         nav_lay.addStretch()
         lay.addWidget(nav_frame, 1)
 
-        # SF-Statusanzeige unten
+        # Verbindungsstatus-Anzeige unten (Salesforce + TIA Portal)
         sf_frame = QFrame()
         sf_frame.setStyleSheet(f"background:{C['surface']}; border-top:1px solid {C['border']};")
         sf_lay = QVBoxLayout(sf_frame)
         sf_lay.setContentsMargins(12, 10, 12, 10)
-        sf_lay.setSpacing(4)
+        sf_lay.setSpacing(6)
 
+        # — Salesforce —
         sf_top = QHBoxLayout()
+        sf_top.setSpacing(6)
         self._sf_dot = lbl("●", C["red"], size=12)
         sf_top.addWidget(self._sf_dot)
         sf_top.addWidget(lbl("Salesforce", C["subtext"], size=9))
         sf_top.addStretch()
         sf_lay.addLayout(sf_top)
-
         self._sf_name = lbl("Nicht verbunden", C["dimtext"], size=8)
         self._sf_name.setWordWrap(True)
         sf_lay.addWidget(self._sf_name)
+
+        # Trennlinie
+        div = QFrame()
+        div.setFrameShape(QFrame.Shape.HLine)
+        div.setStyleSheet(f"color:{C['border']}; background:{C['border']}; max-height:1px;")
+        sf_lay.addWidget(div)
+
+        # — SAP —
+        sap_top = QHBoxLayout()
+        sap_top.setSpacing(6)
+        self._sap_dot = lbl("●", C["red"], size=12)
+        sap_top.addWidget(self._sap_dot)
+        sap_top.addWidget(lbl("SAP", C["subtext"], size=9))
+        sap_top.addStretch()
+        sf_lay.addLayout(sap_top)
+        self._sap_name = lbl("Nicht verbunden", C["dimtext"], size=8)
+        self._sap_name.setWordWrap(True)
+        sf_lay.addWidget(self._sap_name)
+
+        # Trennlinie
+        div2 = QFrame()
+        div2.setFrameShape(QFrame.Shape.HLine)
+        div2.setStyleSheet(f"color:{C['border']}; background:{C['border']}; max-height:1px;")
+        sf_lay.addWidget(div2)
+
+        # — TIA Portal —
+        tia_top = QHBoxLayout()
+        tia_top.setSpacing(6)
+        self._tia_dot = lbl("●", C["red"], size=12)
+        tia_top.addWidget(self._tia_dot)
+        tia_top.addWidget(lbl("TIA Portal", C["subtext"], size=9))
+        tia_top.addStretch()
+        sf_lay.addLayout(tia_top)
+        self._tia_name = lbl("Nicht verbunden", C["dimtext"], size=8)
+        self._tia_name.setWordWrap(True)
+        sf_lay.addWidget(self._tia_name)
 
         lay.addWidget(sf_frame)
         # Hinweis: Das Vorauswählen der Start-Seite passiert NICHT hier,
@@ -246,18 +272,29 @@ class Sidebar(QFrame):
 
     def set_sf_status(self, connected, name=""):
         """SF-Verbindungsstatus in der Sidebar aktualisieren."""
-        if connected == "ok":
-            self._sf_dot.setStyleSheet(f"color:{C['green']}; font-size:12pt;")
-            self._sf_name.setText(name or "Verbunden")
-            self._sf_name.setStyleSheet(f"color:{C['green']}; font-size:8pt;")
-        elif connected == "warn":
-            self._sf_dot.setStyleSheet(f"color:{C['yellow']}; font-size:12pt;")
-            self._sf_name.setText("Verbindungsproblem")
-            self._sf_name.setStyleSheet(f"color:{C['yellow']}; font-size:8pt;")
+        self._set_conn_status(self._sf_dot, self._sf_name, connected, name)
+
+    def set_sap_status(self, connected, name=""):
+        """SAP-Status in der Sidebar aktualisieren."""
+        self._set_conn_status(self._sap_dot, self._sap_name, connected, name)
+
+    def set_tia_status(self, connected, name=""):
+        """TIA-Portal-Status in der Sidebar aktualisieren."""
+        self._set_conn_status(self._tia_dot, self._tia_name, connected, name)
+
+    def _set_conn_status(self, dot, name_lbl, state, name=""):
+        if state == "ok":
+            dot.setStyleSheet(f"color:{C['green']}; font-size:12pt;")
+            name_lbl.setText(name or "Verbunden")
+            name_lbl.setStyleSheet(f"color:{C['green']}; font-size:8pt;")
+        elif state == "warn":
+            dot.setStyleSheet(f"color:{C['yellow']}; font-size:12pt;")
+            name_lbl.setText(name or "Verbindungsproblem")
+            name_lbl.setStyleSheet(f"color:{C['yellow']}; font-size:8pt;")
         else:
-            self._sf_dot.setStyleSheet(f"color:{C['red']}; font-size:12pt;")
-            self._sf_name.setText(name or "Nicht verbunden")
-            self._sf_name.setStyleSheet(f"color:{C['dimtext']}; font-size:8pt;")
+            dot.setStyleSheet(f"color:{C['red']}; font-size:12pt;")
+            name_lbl.setText(name or "Nicht verbunden")
+            name_lbl.setStyleSheet(f"color:{C['dimtext']}; font-size:8pt;")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -367,11 +404,15 @@ class MainWindow(QMainWindow):
         if idx == 0:
             page.navigate_to.connect(self._sidebar.select)
 
-        # Salesforce-Seite braucht Sonderbehandlung (SF-Verbindung).
+        # Salesforce-Seite braucht Sonderbehandlung (SF-Verbindung + TIA-Status).
         if idx == 1:
             self._page_salesforce = page
             page.sf_connected.connect(self._on_sf_connected)
             page.sf_disconnected.connect(self._on_sf_disconnected)
+            page.sap_status_changed.connect(
+                lambda st, nm: self._sidebar.set_sap_status(st, nm))
+            page.tia_status_changed.connect(
+                lambda st, nm: self._sidebar.set_tia_status(st, nm))
 
         # Ersatzteile-Seite: Doppelklick auf einen Eintrag soll das Teil
         # automatisch der aktuellen Bestellung hinzufügen (Bestellung-Seite wird
@@ -461,8 +502,12 @@ class MainWindow(QMainWindow):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    # Verwaiste _MEIxxxxx-Temp-Ordner früherer (z.B. abgestürzter) Läufe
-    # entfernen, bevor die Oberfläche startet — siehe utils.cleanup_orphaned_meipass.
+    try:
+        import pyi_splash
+        pyi_splash.close()
+    except ImportError:
+        pass
+
     cleanup_orphaned_meipass()
 
     app = QApplication(sys.argv)
@@ -471,8 +516,17 @@ def main():
     app.setStyleSheet(STYLE)
     if os.path.isfile(ICON_FILE):
         app.setWindowIcon(QIcon(ICON_FILE))
+
+    from splash import show_splash
+    splash = show_splash()
+
+    splash.advance(1)
     win = MainWindow()
-    win.showMaximized()  # Maximiert starten (Vollbild, aber mit Windows-Taskleiste sichtbar)
+    splash.advance(3)
+    app.processEvents()
+
+    win.showMaximized()
+    splash.close()
     sys.exit(app.exec())
 
 
