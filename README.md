@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="icons/icon.png" alt="Service - Tool" width="120" />
-
 # Service - Tool
 
 **Das All-in-One-Werkzeug für den Service**
